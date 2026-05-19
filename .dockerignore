@@ -3,6 +3,8 @@ npm-debug.log
 .git
 .gitignore
 *.tar.gz
+*.tar
+dist
 _ref_connect_api
 README.md
 data

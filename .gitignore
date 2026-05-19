@@ -1,7 +1,12 @@
 node_modules/
 package-lock.json
 npm-debug.log*
-*.tar.gz
 .env
 data/
 _ref_connect_api/
+
+# Build artifacts (the .tar.gz lives in dist/, but only the directory is tracked)
+dist/*
+!dist/.gitkeep
+*.tar.gz
+*.tar

@@ -1,0 +1,14 @@
+# Default: let git auto-handle line endings on text files.
+* text=auto
+
+# Shell scripts MUST use LF — they are run inside the Linux build container.
+*.sh text eol=lf
+
+# PowerShell stays CRLF on Windows.
+*.ps1 text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gz binary
+*.tar binary
