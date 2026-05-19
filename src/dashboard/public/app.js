@@ -664,6 +664,16 @@ async function refreshDiag() {
 			${c.hint ? `<span class="muted">${escape(c.hint)}</span>` : ""}
 		</div>
 	`).join("");
+	const m = r.modbus || {};
+	dl("diagModbus", [
+		["Verbunden", m.connected ? "ja" : "nein"],
+		["Reads gesamt", m.reads ?? 0],
+		["davon erfolgreich", m.readsOk ?? 0],
+		["davon Timeout", m.readsTimeout ?? 0],
+		["davon Sonstige Fehler", m.readsError ?? 0],
+		["Writes", m.writes ?? 0],
+		["Letzter Fehler", m.lastError || "–"],
+	]);
 	dl("diagEnv", [
 		["Node", r.environment.node],
 		["Plattform", r.environment.platform],
@@ -677,6 +687,35 @@ async function refreshDiag() {
 		["Eigenverbrauchsanteil", stat.selfSufficiency != null ? (stat.selfSufficiency * 100).toFixed(1) + " %" : "–"],
 	]);
 }
+
+document.getElementById("btnProbeTcp")?.addEventListener("click", async () => {
+	$("probeOut").textContent = "TCP-Test läuft…";
+	try {
+		const r = await fetch("/api/probe/tcp").then((x) => x.json());
+		$("probeOut").textContent = r.ok
+			? `✓ TCP ${r.host}:${r.port} erreichbar in ${r.durationMs} ms`
+			: `✗ TCP ${r.host}:${r.port} fehlgeschlagen: ${r.error || "unknown"} (${r.durationMs} ms)`;
+	} catch (e) {
+		$("probeOut").textContent = "Fehler: " + e.message;
+	}
+});
+
+document.getElementById("btnProbeSlave")?.addEventListener("click", async () => {
+	$("probeOut").textContent = "Slave-IDs werden getestet (kann ~30 s dauern)…";
+	try {
+		const r = await fetch("/api/probe/slave", { method: "POST" }).then((x) => x.json());
+		const lines = r.tested.map((t) =>
+			t.ok ? `  ✓ Slave ${t.unitId}: antwortet (Sample ${t.sample})`
+			     : `  ✗ Slave ${t.unitId}: ${t.error}`
+		);
+		const ok = r.tested.filter((t) => t.ok).map((t) => t.unitId);
+		$("probeOut").innerHTML = `<pre class="mono">Aktuell konfiguriert: ${r.configured}\n${lines.join("\n")}\n\n${
+			ok.length ? "Antwortend: " + ok.join(", ") : "Keine Slave-ID antwortet — Wechselrichter wahrscheinlich im Nachtmodus."
+		}</pre>`;
+	} catch (e) {
+		$("probeOut").textContent = "Fehler: " + e.message;
+	}
+});
 
 // ── Helpers ───────────────────────────────────────────────────
 function dl(id, rows) {

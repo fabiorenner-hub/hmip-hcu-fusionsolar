@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.3
+- Modbus: keep TCP socket open when reads time out (typical at night when
+  the inverter is sleeping). Avoids the spammy "Modbus connected" log loop.
+- Modbus: read timeout raised from 4 s to 8 s for slow wake-up responses.
+- Modbus: identical warnings throttled to once per minute (less log noise).
+- Modbus: socket-level errors now drop the connection (and reconnect),
+  but timeouts no longer do.
+- Dashboard → Diagnose: new "Modbus-Statistik" panel (reads / OK / timeouts /
+  errors / writes / last error).
+- Dashboard → Diagnose: TCP probe and Slave-ID probe buttons.
+- Diagnose check now distinguishes between "TCP connected" and
+  "inverter actually answers", with a clear hint pointing at night mode /
+  wrong slave id / blocking master when only TCP is up.
+
 ## 0.3.0
 - Plugin metadata: issuer set to Fabio Renner, GitHub URL and PayPal donation link appended to description rendered in the HCU plugin tile.
 - README.md / README.de.md: plugin icon at the top, GitHub link, PayPal donate form, updated download link.

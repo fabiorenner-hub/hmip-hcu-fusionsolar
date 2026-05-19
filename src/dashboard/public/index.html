@@ -381,8 +381,20 @@
 			<!-- ── Diagnose ───────────────────────────────────────── -->
 			<section id="tab-diag" class="tab">
 				<div class="card">
+					<h3>Schnell-Tests</h3>
+					<div class="row">
+						<button id="btnProbeTcp" class="ghost">TCP-Verbindung testen</button>
+						<button id="btnProbeSlave" class="ghost">Slave-IDs durchprobieren</button>
+						<span id="probeOut" class="mono"></span>
+					</div>
+				</div>
+				<div class="card">
 					<h3>System-Checks</h3>
 					<div id="diagChecks" class="checks"></div>
+				</div>
+				<div class="card">
+					<h3>Modbus-Statistik</h3>
+					<dl id="diagModbus" class="dl"></dl>
 				</div>
 				<div class="card">
 					<h3>Umgebung</h3>

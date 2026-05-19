@@ -219,16 +219,27 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 		const tcpOk = snap.connected;
 		const recentError = snap.lastError;
 		const ageMs = snap.lastUpdate ? Date.now() - snap.lastUpdate : null;
+		const m = getModbus();
+		const mStatus = m.getStatus ? m.getStatus() : {};
+		const reads = mStatus.reads || 0;
+		const ok = mStatus.readsOk || 0;
+		const timeouts = mStatus.readsTimeout || 0;
+		const allTimeout = reads > 5 && ok === 0 && timeouts >= reads - 1;
+
 		const checks = [
 			{ id: "config", label: "Konfiguration vorhanden", ok: !!cfg.inverterHost, hint: cfg.inverterHost ? null : "Wechselrichter-IP fehlt" },
-			{ id: "modbus", label: "Modbus TCP verbunden", ok: tcpOk, hint: recentError },
+			{ id: "modbus_tcp", label: "Modbus TCP verbunden", ok: !!mStatus.connected, hint: mStatus.connected ? null : (recentError || "Nicht verbunden") },
+			{ id: "modbus_replies", label: "Wechselrichter antwortet", ok: ok > 0, hint: allTimeout
+				? "TCP ok, aber alle Lesevorgänge laufen ins Timeout. Mögliche Ursachen: (a) Wechselrichter im Nachtmodus / kein Sonnenlicht, (b) falsche Slave-ID, (c) anderer Modbus-Master blockiert die Verbindung."
+				: ok > 0 ? `${ok}/${reads} Lesevorgänge erfolgreich` : "Noch keine Daten" },
 			{ id: "freshness", label: "Daten aktuell (< 60 s)", ok: ageMs != null && ageMs < 60000, hint: ageMs == null ? "Noch keine Daten" : `Letzte Daten vor ${Math.round(ageMs / 1000)} s` },
 			{ id: "hcu", label: "HCU WebSocket verbunden", ok: getHcuStatus().connected },
-			{ id: "battery", label: "Speicher antwortet", ok: !cfg.hasBattery || (snap.values || {}).batteryRunningStatus !== undefined && (snap.values || {}).batteryRunningStatus !== null, hint: cfg.hasBattery ? null : "Deaktiviert" },
+			{ id: "battery", label: "Speicher antwortet", ok: !cfg.hasBattery || ((snap.values || {}).batteryRunningStatus !== undefined && (snap.values || {}).batteryRunningStatus !== null), hint: cfg.hasBattery ? null : "Deaktiviert" },
 			{ id: "meter", label: "Smart Meter antwortet", ok: !cfg.hasMeter || (snap.values || {}).meterStatus === 1, hint: cfg.hasMeter ? null : "Deaktiviert" },
 		];
 		res.json({
 			checks,
+			modbus: mStatus,
 			environment: {
 				node: process.version,
 				platform: process.platform,
@@ -236,6 +247,48 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 				rss: process.memoryUsage().rss,
 			},
 		});
+	});
+
+	// Probe: try a small read against alternative Slave-IDs to find which
+	// one responds. Only runs when Modbus is connected.
+	app.post("/api/probe/slave", async (_req, res) => {
+		try {
+			const m = getModbus();
+			const cfg = getConfig();
+			const results = [];
+			for (const id of [0, 1, 2, 3]) {
+				try {
+					m.client.setID(id);
+					const r = await m.client.readHoldingRegisters(30000, 1); // model[0]
+					results.push({ unitId: id, ok: true, sample: r.data[0] });
+				} catch (e) {
+					results.push({ unitId: id, ok: false, error: e.message });
+				}
+			}
+			// Restore configured ID
+			try { m.client.setID(cfg.inverterUnitId || 1); } catch {}
+			res.json({ tested: results, configured: cfg.inverterUnitId });
+		} catch (e) {
+			res.status(500).json({ error: e.message });
+		}
+	});
+
+	// Probe: TCP-only check — bypasses Modbus, just opens a socket to host:port.
+	app.get("/api/probe/tcp", async (_req, res) => {
+		const cfg = getConfig();
+		const net = require("net");
+		const start = Date.now();
+		const sock = new net.Socket();
+		const timeout = 4000;
+		const done = (result) => {
+			try { sock.destroy(); } catch {}
+			res.json({ host: cfg.inverterHost, port: cfg.inverterPort, durationMs: Date.now() - start, ...result });
+		};
+		sock.setTimeout(timeout);
+		sock.once("connect", () => done({ ok: true }));
+		sock.once("timeout", () => done({ ok: false, error: "timeout" }));
+		sock.once("error", (e) => done({ ok: false, error: e.message }));
+		sock.connect(cfg.inverterPort || 502, cfg.inverterHost);
 	});
 
 	app.get("/healthz", (_req, res) => {
