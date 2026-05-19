@@ -52,6 +52,13 @@ chmod +x build.sh
 
 Issued by **Fabio Renner**.
 
+### Third-party components
+
+- [`modbus-serial`](https://github.com/yaacov/node-modbus-serial) by Yaacov Zamir and contributors — Modbus client for Node.js (ISC).
+- [`express`](https://expressjs.com/) — HTTP server for the local debug dashboard (MIT).
+- Sun2000, LUNA2000 and the FusionSolar cloud are products of Huawei Technologies; this plugin is not affiliated with or endorsed by Huawei. The DTSU666-H is a CHINT meter exposed via the Huawei smart-meter Modbus map.
+- Built against the [Homematic IP Connect API 1.0.1](https://github.com/homematicip/connect-api) by eQ-3.
+
 ## License
 
 Apache-2.0
