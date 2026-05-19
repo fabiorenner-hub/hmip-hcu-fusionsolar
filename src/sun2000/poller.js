@@ -1,53 +1,24 @@
 "use strict";
 
-// Polls the inverter on a timer and emits a normalized snapshot.
+// Polls the inverter on an adaptive timer.
+//
+// Strategy: instead of issuing one Modbus request per register (which the
+// SDongleA-05 dislikes – it tends to drop the connection when other
+// masters are competing), we read whole register blocks at once and
+// decode the named fields locally. That cuts a 30+ request poll down
+// to ~5 requests.
+//
+// Adaptive interval: on success we use config.pollIntervalMs. On any
+// block failure we back off exponentially (2x each time) up to 60 s,
+// and reset to base on the next success. This is friendly to the
+// inverter and quiet in the logs.
 
 const { EventEmitter } = require("events");
 const log = require("../logger");
 const { Sun2000Modbus } = require("./modbus");
-const { BATTERY_STATUS, DEVICE_STATUS } = require("./registers");
+const { BATTERY_STATUS, DEVICE_STATUS, READ_BLOCKS } = require("./registers");
 
-const STATIC_REGS = ["model", "sn", "firmwareVersion", "ratedPower", "batteryRatedCapacity"];
-
-const REALTIME_REGS_BASE = [
-	"inputPower",
-	"activePower",
-	"reactivePower",
-	"powerFactor",
-	"gridFrequency",
-	"internalTemp",
-	"deviceStatus",
-	"dailyYield",
-	"totalYield",
-];
-
-const METER_REGS = [
-	"meterStatus",
-	"meterActivePower",
-	"meterReactivePower",
-	"meterPowerFactor",
-	"meterFrequency",
-	"meterPositiveActiveEnergy",
-	"meterReverseActiveEnergy",
-	"meterPhaseAVoltage",
-	"meterPhaseBVoltage",
-	"meterPhaseCVoltage",
-	"meterPhaseACurrent",
-	"meterPhaseBCurrent",
-	"meterPhaseCCurrent",
-];
-
-const BATTERY_REGS = [
-	"batteryRunningStatus",
-	"batteryChargeDischargePower",
-	"batterySoc",
-	"batteryBusVoltage",
-	"batteryBackupTime",
-	"batteryDayChargeCapacity",
-	"batteryDayDischargeCapacity",
-	"batteryTotalCharge",
-	"batteryTotalDischarge",
-];
+const MAX_BACKOFF_MS = 60_000;
 
 class Poller extends EventEmitter {
 	constructor(config) {
@@ -62,6 +33,8 @@ class Poller extends EventEmitter {
 			static: {},
 			values: {},
 		};
+		this._currentInterval = null;
+		this._consecutiveFailures = 0;
 	}
 
 	async start() {
@@ -81,13 +54,11 @@ class Poller extends EventEmitter {
 			this.snapshot.connected = false;
 			this.snapshot.lastError = e.message;
 		}
-		const interval = Math.max(2000, this.config.pollIntervalMs || 10000);
-		this.timer = setInterval(() => this._tick().catch((e) => log.error("Poll error:", e)), interval);
-		this._tick().catch((e) => log.error("Initial poll error:", e));
+		this._scheduleNext(0);
 	}
 
 	stop() {
-		if (this.timer) clearInterval(this.timer);
+		if (this.timer) clearTimeout(this.timer);
 		this.timer = null;
 		this.modbus.close();
 	}
@@ -96,6 +67,8 @@ class Poller extends EventEmitter {
 		this.stop();
 		this.config = newConfig;
 		this.snapshot = { connected: false, lastUpdate: null, lastError: null, static: {}, values: {} };
+		this._currentInterval = null;
+		this._consecutiveFailures = 0;
 		await this.start();
 	}
 
@@ -107,36 +80,101 @@ class Poller extends EventEmitter {
 		return this.modbus;
 	}
 
+	_baseInterval() {
+		return Math.max(2000, this.config.pollIntervalMs || 10000);
+	}
+
+	_nextDelay(success) {
+		if (success) {
+			this._consecutiveFailures = 0;
+			this._currentInterval = this._baseInterval();
+		} else {
+			this._consecutiveFailures += 1;
+			const next = (this._currentInterval || this._baseInterval()) * 2;
+			this._currentInterval = Math.min(MAX_BACKOFF_MS, next);
+		}
+		return this._currentInterval;
+	}
+
+	_scheduleNext(delay) {
+		if (this.timer) clearTimeout(this.timer);
+		this.timer = setTimeout(() => {
+			this._tick().catch((e) => log.error("Poll error:", e));
+		}, delay);
+	}
+
 	async _readStatic() {
-		const data = await this.modbus.readMany(STATIC_REGS);
-		this.snapshot.static = data;
-		log.info(`Inverter: ${data.model || "?"} SN ${data.sn || "?"} FW ${data.firmwareVersion || "?"}`);
+		try {
+			const data = await this.modbus.readBlock(
+				READ_BLOCKS.staticInfo.start,
+				READ_BLOCKS.staticInfo.count,
+				READ_BLOCKS.staticInfo.names
+			);
+			let bat = {};
+			if (this.config.hasBattery) {
+				bat = await this.modbus.readBlock(
+					READ_BLOCKS.batteryStatic.start,
+					READ_BLOCKS.batteryStatic.count,
+					READ_BLOCKS.batteryStatic.names
+				);
+			}
+			this.snapshot.static = { ...data, ...bat };
+			log.info(`Inverter: ${data.model || "?"} SN ${data.sn || "?"} FW ${data.firmwareVersion || "?"}`);
+		} catch (e) {
+			log.warn(`Static read failed: ${e.message}`);
+		}
 	}
 
 	async _tick() {
 		const cfg = this.config;
-		const regs = [...REALTIME_REGS_BASE];
-		if (cfg.hasMeter) regs.push(...METER_REGS);
-		if (cfg.hasBattery) regs.push(...BATTERY_REGS);
-
+		let success = false;
 		try {
-			const v = await this.modbus.readMany(regs);
-			this.snapshot.values = v;
+			const merged = {};
+			// Always: PV/AC + yields
+			Object.assign(merged, await this.modbus.readBlock(
+				READ_BLOCKS.pvAndAc.start, READ_BLOCKS.pvAndAc.count, READ_BLOCKS.pvAndAc.names
+			));
+			Object.assign(merged, await this.modbus.readBlock(
+				READ_BLOCKS.yields.start, READ_BLOCKS.yields.count, READ_BLOCKS.yields.names
+			));
+			if (cfg.hasMeter) {
+				Object.assign(merged, await this.modbus.readBlock(
+					READ_BLOCKS.meter.start, READ_BLOCKS.meter.count, READ_BLOCKS.meter.names
+				));
+			}
+			if (cfg.hasBattery) {
+				Object.assign(merged, await this.modbus.readBlock(
+					READ_BLOCKS.battery.start, READ_BLOCKS.battery.count, READ_BLOCKS.battery.names
+				));
+			}
+
+			// If no model SN was read at startup (e.g. inverter was asleep),
+			// retry it opportunistically once we get any successful read.
+			if (!this.snapshot.static.sn) {
+				try { await this._readStatic(); } catch {}
+			}
+
+			// We consider the tick successful if at least one core field arrived.
+			const anyOk = Object.values(merged).some((v) => v !== null && v !== undefined);
+			if (!anyOk) throw new Error("All blocks returned null");
+
+			merged.deviceStatusText = DEVICE_STATUS[merged.deviceStatus] || (merged.deviceStatus != null ? `0x${merged.deviceStatus.toString(16)}` : "–");
+			if (cfg.hasBattery) {
+				merged.batteryRunningStatusText = BATTERY_STATUS[merged.batteryRunningStatus] || String(merged.batteryRunningStatus ?? "");
+			}
+
+			this.snapshot.values = merged;
 			this.snapshot.connected = true;
 			this.snapshot.lastUpdate = Date.now();
 			this.snapshot.lastError = null;
-
-			// Annotate enums
-			this.snapshot.values.deviceStatusText = DEVICE_STATUS[v.deviceStatus] || `0x${(v.deviceStatus || 0).toString(16)}`;
-			if (cfg.hasBattery) {
-				this.snapshot.values.batteryRunningStatusText = BATTERY_STATUS[v.batteryRunningStatus] || String(v.batteryRunningStatus);
-			}
-
 			this.emit("snapshot", this.snapshot);
+			success = true;
 		} catch (e) {
 			this.snapshot.connected = false;
 			this.snapshot.lastError = e.message;
 			this.emit("error", e);
+		} finally {
+			this._scheduleNext(this._nextDelay(success));
 		}
 	}
 }

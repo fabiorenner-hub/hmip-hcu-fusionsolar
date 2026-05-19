@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.4
+- Modbus block reads: instead of issuing one request per register, contiguous
+  registers are now read in a single Modbus call. A poll cycle that previously
+  fired ~30 separate requests now fires 4–6, which is much friendlier to the
+  SDongleA-05 when other Modbus masters (FusionSolar cloud sync, HA, etc.)
+  share the inverter.
+- Adaptive poll interval: failures back off exponentially (10s → 20s → 40s →
+  60s) and reset to base on the next successful read.
+- Diagnose: new "Verbindung stabil" check that detects the typical
+  "socket closed by peer" pattern and points the user at the
+  FusionSolar Modbus-TCP setting ("uneingeschränkt").
+
 ## 0.3.3
 - Modbus: keep TCP socket open when reads time out (typical at night when
   the inverter is sleeping). Avoids the spammy "Modbus connected" log loop.

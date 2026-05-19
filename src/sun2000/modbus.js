@@ -158,6 +158,35 @@ class Sun2000Modbus {
 		});
 	}
 
+	// Block read: read a contiguous register range in a single Modbus call,
+	// then decode the named registers from the resulting word array.
+	// `start`+`count` defines the window, `names` lists registers within it.
+	async readBlock(start, count, names) {
+		const out = {};
+		let words;
+		try {
+			words = await this.readRaw(start, count);
+		} catch {
+			for (const n of names) out[n] = null;
+			return out;
+		}
+		for (const name of names) {
+			const reg = REG[name];
+			if (!reg) { out[name] = null; continue; }
+			const offset = reg.addr - start;
+			if (offset < 0 || offset + reg.length > count) {
+				out[name] = null;
+				continue;
+			}
+			try {
+				out[name] = decode(reg, words.slice(offset, offset + reg.length));
+			} catch {
+				out[name] = null;
+			}
+		}
+		return out;
+	}
+
 	async writeRegister(name, value) {
 		const reg = REG[name];
 		if (!reg) throw new Error(`Unknown register: ${name}`);

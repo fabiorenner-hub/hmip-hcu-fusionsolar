@@ -232,6 +232,11 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 			{ id: "modbus_replies", label: "Wechselrichter antwortet", ok: ok > 0, hint: allTimeout
 				? "TCP ok, aber alle Lesevorgänge laufen ins Timeout. Mögliche Ursachen: (a) Wechselrichter im Nachtmodus / kein Sonnenlicht, (b) falsche Slave-ID, (c) anderer Modbus-Master blockiert die Verbindung."
 				: ok > 0 ? `${ok}/${reads} Lesevorgänge erfolgreich` : "Noch keine Daten" },
+			{ id: "stability", label: "Verbindung stabil",
+				ok: !(/closed by peer/i.test(mStatus.lastError || "")),
+				hint: /closed by peer/i.test(mStatus.lastError || "")
+					? "SDongle schließt die Verbindung wiederholt. Wahrscheinlich konkurriert ein anderer Modbus-Master (z. B. FusionSolar Cloud im 'verbunden'-Modus). Lösung: in der FusionSolar-App SDongle → Modbus TCP → Modus auf 'uneingeschränkt' setzen."
+					: null },
 			{ id: "freshness", label: "Daten aktuell (< 60 s)", ok: ageMs != null && ageMs < 60000, hint: ageMs == null ? "Noch keine Daten" : `Letzte Daten vor ${Math.round(ageMs / 1000)} s` },
 			{ id: "hcu", label: "HCU WebSocket verbunden", ok: getHcuStatus().connected },
 			{ id: "battery", label: "Speicher antwortet", ok: !cfg.hasBattery || ((snap.values || {}).batteryRunningStatus !== undefined && (snap.values || {}).batteryRunningStatus !== null), hint: cfg.hasBattery ? null : "Deaktiviert" },

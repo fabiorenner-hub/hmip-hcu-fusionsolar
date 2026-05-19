@@ -1,6 +1,6 @@
 {
   "name": "hmip-plugin-fusionsolar",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "description": "Homematic IP HCU plugin to read and control a Huawei Sun2000 PV system locally via Modbus TCP, with optional FusionSolar cloud fallback.",
   "license": "Apache-2.0",

@@ -207,4 +207,60 @@ const DEVICE_STATUS = {
 	0xa000: "Standby: no irradiation",
 };
 
-module.exports = { REG, decode, encode, BATTERY_STATUS, DEVICE_STATUS };
+// Contiguous register windows, each readable in a single Modbus request.
+// Groups were chosen by inspecting REG addresses and bundling neighbours
+// up to ~80 words per block (well below the 125-word Modbus limit).
+const READ_BLOCKS = {
+	staticInfo: {
+		start: 30000,
+		count: 75,                        // 30000 model … 30074 ratedPower
+		names: ["model", "sn", "pn", "firmwareVersion", "ratedPower"],
+	},
+	pvAndAc: {
+		start: 32016,
+		count: 80,                        // 32016 pv1V … 32089 deviceStatus
+		names: [
+			"pv1Voltage", "pv1Current", "pv2Voltage", "pv2Current",
+			"pv3Voltage", "pv3Current", "pv4Voltage", "pv4Current",
+			"inputPower", "phaseAVoltage", "phaseBVoltage", "phaseCVoltage",
+			"phaseACurrent", "phaseBCurrent", "phaseCCurrent",
+			"activePower", "reactivePower", "powerFactor",
+			"gridFrequency", "efficiency", "internalTemp",
+			"insulationRes", "deviceStatus",
+		],
+	},
+	yields: {
+		start: 32106,
+		count: 12,                         // 32106 totalYield … 32114 dailyYield
+		names: ["totalYield", "dailyYield"],
+	},
+	battery: {
+		start: 37000,
+		count: 70,                         // 37000 status … 37068 totalDischarge
+		names: [
+			"batteryRunningStatus", "batteryChargeDischargePower",
+			"batterySoc", "batteryBusVoltage", "batteryBackupTime",
+			"batteryDayChargeCapacity", "batteryDayDischargeCapacity",
+			"batteryTotalCharge", "batteryTotalDischarge",
+		],
+	},
+	batteryStatic: {
+		start: 37758,
+		count: 2,                          // batteryRatedCapacity
+		names: ["batteryRatedCapacity"],
+	},
+	meter: {
+		start: 37100,
+		count: 25,                         // 37100 meterStatus … 37121 reverseEnergy
+		names: [
+			"meterStatus",
+			"meterPhaseAVoltage", "meterPhaseBVoltage", "meterPhaseCVoltage",
+			"meterPhaseACurrent", "meterPhaseBCurrent", "meterPhaseCCurrent",
+			"meterActivePower", "meterReactivePower",
+			"meterPowerFactor", "meterFrequency",
+			"meterPositiveActiveEnergy", "meterReverseActiveEnergy",
+		],
+	},
+};
+
+module.exports = { REG, decode, encode, BATTERY_STATUS, DEVICE_STATUS, READ_BLOCKS };
