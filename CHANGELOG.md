@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+- Plugin metadata: issuer set to Fabio Renner, GitHub URL and PayPal donation link appended to description rendered in the HCU plugin tile.
+- README.md / README.de.md: plugin icon at the top, GitHub link, PayPal donate form, updated download link.
+- New plugin icon (icon.svg).
+
 ## 0.2.0
 - Massively expanded debug dashboard:
   - Server-Sent Events (SSE) for instant live updates.
@@ -23,3 +28,4 @@
 - Optional FusionSolar cloud fallback (read-only).
 - HCUweb config page with grouped properties.
 - Local debug dashboard on port 8088 with live values, register browser and write-register tool.
+

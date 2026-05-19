@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Sun2000 / FusionSolar Plugin">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1b2233"/>
+      <stop offset="100%" stop-color="#0a0d12"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffd43b"/>
+      <stop offset="100%" stop-color="#fab005"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <circle cx="256" cy="170" r="56" fill="url(#sun)"/>
+  <g stroke="#ffd43b" stroke-width="8" stroke-linecap="round">
+    <line x1="256" y1="76" x2="256" y2="102"/>
+    <line x1="180" y1="170" x2="206" y2="170"/>
+    <line x1="306" y1="170" x2="332" y2="170"/>
+    <line x1="190" y1="104" x2="208" y2="122"/>
+    <line x1="304" y1="122" x2="322" y2="104"/>
+  </g>
+  <g transform="translate(96 268)">
+    <polygon points="0,128 80,0 320,0 240,128" fill="#1c7ed6" stroke="#1864ab" stroke-width="4"/>
+    <g stroke="#a5d8ff" stroke-width="3">
+      <line x1="40" y1="64" x2="280" y2="64"/>
+      <line x1="100" y1="0" x2="60" y2="128"/>
+      <line x1="180" y1="0" x2="140" y2="128"/>
+      <line x1="260" y1="0" x2="220" y2="128"/>
+    </g>
+  </g>
+  <path d="M232 348 L208 408 L248 408 L228 444 L284 372 L252 372 Z" fill="#ffd43b" stroke="#1b2233" stroke-width="3"/>
+</svg>
