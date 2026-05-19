@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width,initial-scale=1" />
+		<title>Sun2000 · HmIP Plugin</title>
+		<link rel="stylesheet" href="style.css" />
+	</head>
+	<body>
+		<header>
+			<div class="brand">
+				<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+					<circle cx="12" cy="12" r="4" fill="currentColor" />
+					<g stroke="currentColor" stroke-width="2" stroke-linecap="round">
+						<line x1="12" y1="2" x2="12" y2="5" />
+						<line x1="12" y1="19" x2="12" y2="22" />
+						<line x1="2" y1="12" x2="5" y2="12" />
+						<line x1="19" y1="12" x2="22" y2="12" />
+						<line x1="4.5" y1="4.5" x2="6.5" y2="6.5" />
+						<line x1="17.5" y1="17.5" x2="19.5" y2="19.5" />
+						<line x1="4.5" y1="19.5" x2="6.5" y2="17.5" />
+						<line x1="17.5" y1="6.5" x2="19.5" y2="4.5" />
+					</g>
+				</svg>
+				<h1>Sun2000 · HmIP</h1>
+			</div>
+			<div class="status">
+				<span id="connDot" class="dot"></span>
+				<span id="connText">…</span>
+				<span id="lastUpdate" class="muted"></span>
+				<button id="themeToggle" class="ghost icon" title="Theme">◐</button>
+				<select id="langSelect" class="ghost" title="Sprache">
+					<option value="de">DE</option>
+					<option value="en">EN</option>
+				</select>
+			</div>
+		</header>
+
+		<nav class="tabs" id="tabBar"></nav>
+
+		<main>
+			<!-- ── Übersicht ─────────────────────────────────────── -->
+			<section id="tab-overview" class="tab active">
+				<div class="flowWrap">
+					<svg id="flow" viewBox="0 0 800 280" xmlns="http://www.w3.org/2000/svg" class="flow"></svg>
+				</div>
+				<div class="grid">
+					<div class="card kpi" data-kpi="pv">
+						<h3 data-i18n="overview.pv">PV-Erzeugung</h3>
+						<div class="big" id="kpiPv">– W</div>
+						<div class="muted" id="kpiPvDay">heute – kWh · gesamt – kWh</div>
+						<div class="bar"><div id="kpiPvBar"></div></div>
+					</div>
+					<div class="card kpi" data-kpi="ac">
+						<h3 data-i18n="overview.ac">Wechselrichter AC</h3>
+						<div class="big" id="kpiAc">– W</div>
+						<div class="muted" id="kpiInv">– · –</div>
+					</div>
+					<div class="card kpi" data-kpi="grid">
+						<h3 data-i18n="overview.grid">Netz</h3>
+						<div class="big" id="kpiGrid">– W</div>
+						<div class="muted" id="kpiGridEnergy">Bezug – kWh · Einspeisung – kWh</div>
+					</div>
+					<div class="card kpi" data-kpi="battery">
+						<h3 data-i18n="overview.battery">Speicher</h3>
+						<div class="big"><span id="kpiBattery">– %</span></div>
+						<div class="muted" id="kpiBatteryPower">– W · –</div>
+						<div class="bar"><div id="kpiBatteryBar"></div></div>
+					</div>
+					<div class="card kpi" data-kpi="house">
+						<h3 data-i18n="overview.house">Hausverbrauch</h3>
+						<div class="big" id="kpiHouse">– W</div>
+						<div class="muted" id="kpiHouseSelf">Eigenverbrauch – %</div>
+					</div>
+					<div class="card kpi" data-kpi="hcu">
+						<h3 data-i18n="overview.hcu">HCU-Verbindung</h3>
+						<div class="big" id="kpiHcu">…</div>
+						<div class="muted" id="kpiHcuDetails">–</div>
+					</div>
+				</div>
+				<div class="card">
+					<div class="cardHead">
+						<h3 data-i18n="overview.todayPeaks">Tagesspitzen</h3>
+					</div>
+					<div class="peaks" id="peaks"></div>
+				</div>
+			</section>
+
+			<!-- ── Live ───────────────────────────────────────────── -->
+			<section id="tab-live" class="tab">
+				<div class="row">
+					<select id="liveWindow" class="ghost">
+						<option value="600">10 min</option>
+						<option value="1800">30 min</option>
+						<option value="3600" selected>1 h</option>
+						<option value="10800">3 h</option>
+						<option value="21600">6 h</option>
+					</select>
+					<label class="toggle"><input type="checkbox" id="liveAuto" checked /> Auto-Update</label>
+					<span id="liveAge" class="muted"></span>
+				</div>
+				<div class="card">
+					<h3>Leistung</h3>
+					<canvas id="chartPower" class="chart" height="240"></canvas>
+					<div class="legend" id="legendPower"></div>
+				</div>
+				<div class="grid two">
+					<div class="card">
+						<h3>Speicher SOC</h3>
+						<canvas id="chartSoc" class="chart" height="180"></canvas>
+					</div>
+					<div class="card">
+						<h3>Wechselrichter-Temperatur</h3>
+						<canvas id="chartTemp" class="chart" height="180"></canvas>
+					</div>
+				</div>
+			</section>
+
+			<!-- ── Wechselrichter ─────────────────────────────────── -->
+			<section id="tab-inverter" class="tab">
+				<div class="grid">
+					<div class="card">
+						<h3>Modell</h3>
+						<dl id="invInfo" class="dl"></dl>
+					</div>
+					<div class="card">
+						<h3>AC-Seite</h3>
+						<dl id="invAc" class="dl"></dl>
+					</div>
+					<div class="card">
+						<h3>PV-Eingänge (MPPT)</h3>
+						<table id="pvTable" class="zebra">
+							<thead><tr><th>String</th><th>Spannung</th><th>Strom</th><th>Leistung</th></tr></thead>
+							<tbody></tbody>
+						</table>
+					</div>
+					<div class="card">
+						<h3>Phasen</h3>
+						<table id="phaseTable" class="zebra">
+							<thead><tr><th>Phase</th><th>Spannung</th><th>Strom</th><th>~Leistung</th></tr></thead>
+							<tbody></tbody>
+						</table>
+					</div>
+					<div class="card">
+						<h3>Erträge</h3>
+						<dl id="invYield" class="dl"></dl>
+					</div>
+					<div class="card">
+						<h3>Status</h3>
+						<dl id="invStatus" class="dl"></dl>
+					</div>
+				</div>
+			</section>
+
+			<!-- ── Speicher ───────────────────────────────────────── -->
+			<section id="tab-battery" class="tab">
+				<div class="grid">
+					<div class="card">
+						<h3>Speicher</h3>
+						<div class="bigGauge">
+							<svg viewBox="0 0 200 110" id="batteryGauge">
+								<path d="M20 100 A 80 80 0 0 1 180 100" fill="none" stroke="var(--border)" stroke-width="14" />
+								<path id="batteryArc" d="M20 100 A 80 80 0 0 1 180 100" fill="none" stroke="var(--accent)" stroke-width="14" stroke-dasharray="251" stroke-dashoffset="251" stroke-linecap="round" />
+								<text x="100" y="80" text-anchor="middle" font-size="34" id="batteryText" fill="currentColor">–</text>
+								<text x="100" y="100" text-anchor="middle" font-size="11" fill="var(--muted)">SOC</text>
+							</svg>
+						</div>
+						<dl id="batMain" class="dl"></dl>
+					</div>
+					<div class="card">
+						<h3>Heute</h3>
+						<dl id="batToday" class="dl"></dl>
+					</div>
+					<div class="card">
+						<h3>Lebensdauer</h3>
+						<dl id="batLifetime" class="dl"></dl>
+					</div>
+				</div>
+				<div class="card">
+					<h3>SOC und Lade-/Entladeleistung</h3>
+					<canvas id="chartBattery" class="chart" height="240"></canvas>
+				</div>
+			</section>
+
+			<!-- ── Netz ───────────────────────────────────────────── -->
+			<section id="tab-grid" class="tab">
+				<div class="grid">
+					<div class="card">
+						<h3>Smart Meter</h3>
+						<dl id="meterMain" class="dl"></dl>
+					</div>
+					<div class="card">
+						<h3>Phasen</h3>
+						<table id="meterPhases" class="zebra">
+							<thead><tr><th>Phase</th><th>Spannung</th><th>Strom</th></tr></thead>
+							<tbody></tbody>
+						</table>
+					</div>
+					<div class="card">
+						<h3>Energie</h3>
+						<dl id="meterEnergy" class="dl"></dl>
+					</div>
+				</div>
+				<div class="card">
+					<h3>Netzleistung (Bezug ↔ Einspeisung)</h3>
+					<canvas id="chartGrid" class="chart" height="220"></canvas>
+				</div>
+			</section>
+
+			<!-- ── Steuerung ──────────────────────────────────────── -->
+			<section id="tab-control" class="tab">
+				<div class="warning">
+					⚠ Schreibzugriffe verändern den Wechselrichter live. Falsche Werte können Abschaltung,
+					Garantieverlust oder Netz-Fehler verursachen. Nur ändern, wenn du weißt was du tust.
+				</div>
+				<div class="grid">
+					<div class="card">
+						<h3>Speichermodus</h3>
+						<p class="muted">Register 47004</p>
+						<div class="row">
+							<button data-ctl="batteryMode" data-val="adaptive">Adaptiv</button>
+							<button data-ctl="batteryMode" data-val="force_charge">Zwangsladung</button>
+							<button data-ctl="batteryMode" data-val="force_discharge">Zwangsentladung</button>
+							<button data-ctl="batteryMode" data-val="stop" class="danger">Stop</button>
+						</div>
+					</div>
+					<div class="card">
+						<h3>Aus dem Netz laden</h3>
+						<p class="muted">Register 47087</p>
+						<div class="row">
+							<button data-ctl="chargeFromGrid" data-val="off">Aus</button>
+							<button data-ctl="chargeFromGrid" data-val="on">An</button>
+						</div>
+					</div>
+					<div class="card">
+						<h3>Ladeziel-SOC für Zwangsladung</h3>
+						<p class="muted">Register 47101</p>
+						<div class="row">
+							<input type="range" min="0" max="100" value="80" id="ctlSoc" />
+							<span id="ctlSocVal" class="mono">80 %</span>
+							<button data-ctl="forcedChargeTargetSoc" data-from="ctlSoc">Setzen</button>
+						</div>
+					</div>
+					<div class="card">
+						<h3>Max. Ladeleistung</h3>
+						<p class="muted">Register 47075 (W)</p>
+						<div class="row">
+							<input type="number" id="ctlMaxCharge" value="5000" min="0" max="20000" step="100" />
+							<button data-ctl="maxChargePower" data-from="ctlMaxCharge">Setzen</button>
+						</div>
+					</div>
+					<div class="card">
+						<h3>Max. Entladeleistung</h3>
+						<p class="muted">Register 47077 (W)</p>
+						<div class="row">
+							<input type="number" id="ctlMaxDischarge" value="5000" min="0" max="20000" step="100" />
+							<button data-ctl="maxDischargePower" data-from="ctlMaxDischarge">Setzen</button>
+						</div>
+					</div>
+					<div class="card">
+						<h3>Wirkleistungsbegrenzung (Einspeisung)</h3>
+						<p class="muted">Register 40125 (% der Nennleistung)</p>
+						<div class="row">
+							<input type="range" min="0" max="100" value="100" id="ctlLimit" />
+							<span id="ctlLimitVal" class="mono">100 %</span>
+							<button data-ctl="activePowerLimit" data-from="ctlLimit">Setzen</button>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<!-- ── Modbus-Register ────────────────────────────────── -->
+			<section id="tab-registers" class="tab">
+				<div class="row">
+					<input id="regSearch" placeholder="Suche … (Name, Adresse)" />
+					<select id="regFilter" class="ghost">
+						<option value="">alle</option>
+						<option value="r">nur lesbar</option>
+						<option value="rw">schreibbar</option>
+					</select>
+					<select id="regBase" class="ghost">
+						<option value="dec">dezimal</option>
+						<option value="hex">hex</option>
+					</select>
+					<label class="toggle"><input type="checkbox" id="regAuto" /> Alle 5 s aktualisieren</label>
+					<button id="regReadAll" class="ghost">Alle lesen</button>
+					<button id="regExport" class="ghost">CSV-Export</button>
+				</div>
+				<table id="regTable" class="zebra">
+					<thead>
+						<tr>
+							<th>Name</th><th>Addr</th><th>Typ</th><th>Einheit</th>
+							<th>Wert</th><th>Aktion</th>
+						</tr>
+					</thead>
+					<tbody></tbody>
+				</table>
+
+				<div class="card">
+					<h3>Roh-Lesung</h3>
+					<div class="row">
+						<input id="rawAddr" type="number" placeholder="Adresse" />
+						<input id="rawLen" type="number" value="2" min="1" max="125" />
+						<button id="rawRead">Lesen</button>
+						<span id="rawResult" class="mono"></span>
+					</div>
+				</div>
+
+				<div class="card">
+					<h3>Bereichs-Scan</h3>
+					<p class="muted">Liest jeden Holding-Register im Bereich. Nützlich um neue Felder zu finden.</p>
+					<div class="row">
+						<input id="scanFrom" type="number" placeholder="von" value="32000" />
+						<input id="scanTo" type="number" placeholder="bis" value="32100" />
+						<button id="scanRun">Scannen</button>
+						<button id="scanCsv" class="ghost">CSV</button>
+					</div>
+					<div id="scanOut" class="scanResult"></div>
+				</div>
+			</section>
+
+			<!-- ── HCU ────────────────────────────────────────────── -->
+			<section id="tab-hcu" class="tab">
+				<div class="grid">
+					<div class="card">
+						<h3>Verbindung</h3>
+						<dl id="hcuInfo" class="dl"></dl>
+					</div>
+					<div class="card">
+						<h3>An HCU gemeldete Geräte</h3>
+						<div id="devicesList"></div>
+					</div>
+				</div>
+				<div class="card">
+					<div class="cardHead">
+						<h3>HCU-Nachrichten</h3>
+						<div class="row">
+							<select id="hcuFilter" class="ghost">
+								<option value="">alle</option>
+								<option value="in">nur eingehend</option>
+								<option value="out">nur ausgehend</option>
+							</select>
+							<select id="hcuTypeFilter" class="ghost"><option value="">alle Typen</option></select>
+							<button id="hcuRefresh" class="ghost">↻</button>
+						</div>
+					</div>
+					<div id="hcuMessages" class="msgs"></div>
+				</div>
+			</section>
+
+			<!-- ── Konfig ─────────────────────────────────────────── -->
+			<section id="tab-config" class="tab">
+				<p class="muted">
+					Wird in <code>/data/config.json</code> auf der HCU gespeichert.
+					Änderungen starten den Modbus-Poller neu.
+				</p>
+				<form id="configForm" class="config"></form>
+				<div class="row">
+					<button id="saveConfig" type="button">Speichern</button>
+					<span id="saveStatus" class="muted"></span>
+				</div>
+			</section>
+
+			<!-- ── Logs ───────────────────────────────────────────── -->
+			<section id="tab-logs" class="tab">
+				<div class="row">
+					<label class="toggle"><input type="checkbox" id="logAuto" checked /> Auto</label>
+					<select id="logLevel" class="ghost">
+						<option value="">alle Level</option>
+						<option value="info">info</option>
+						<option value="warn">warn</option>
+						<option value="error">error</option>
+						<option value="debug">debug</option>
+					</select>
+					<input id="logSearch" placeholder="Filter …" />
+					<button id="logClear" class="ghost">Anzeige leeren</button>
+				</div>
+				<pre id="logBox" class="logbox"></pre>
+			</section>
+
+			<!-- ── Diagnose ───────────────────────────────────────── -->
+			<section id="tab-diag" class="tab">
+				<div class="card">
+					<h3>System-Checks</h3>
+					<div id="diagChecks" class="checks"></div>
+				</div>
+				<div class="card">
+					<h3>Umgebung</h3>
+					<dl id="diagEnv" class="dl"></dl>
+				</div>
+				<div class="card">
+					<h3>Statistik</h3>
+					<dl id="diagStats" class="dl"></dl>
+				</div>
+			</section>
+		</main>
+
+		<footer>
+			<span class="muted">hmip-fusionsolar · lokal · v0.2</span>
+			<span id="footTimers" class="muted"></span>
+		</footer>
+
+		<script src="chart.js"></script>
+		<script src="app.js"></script>
+	</body>
+</html>

@@ -1,0 +1,8 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+*.tar.gz
+_ref_connect_api
+README.md
+data
