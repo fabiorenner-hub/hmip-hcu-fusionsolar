@@ -1,4 +1,4 @@
-> [ðŸ‡¬ðŸ‡§ English](README.md) | ðŸ‡©ðŸ‡ª Deutsch
+> [🇬🇧 English](README.md) | 🇩🇪 Deutsch
 
 <p align="center">
   <img src="icon.svg" alt="hmip-hcu-fusionsolar Symbolbild" width="128" height="128"/>
@@ -6,13 +6,13 @@
 
 # HMIP HCU Plugin: Sun2000 / FusionSolar
 
-ðŸ“¦ **[hmip-hcu-fusionsolar-0.3.1.tar.gz herunterladen](https://github.com/fabiorenner-hub/hmip-hcu-fusionsolar/releases/latest/download/hmip-hcu-fusionsolar-0.3.1.tar.gz)** â€” Installation in HCUweb Ã¼ber *Entwicklermodus â†’ Plugins â†’ Aus Datei installieren*.
+📦 **[hmip-hcu-fusionsolar-0.3.2.tar.gz herunterladen](https://github.com/fabiorenner-hub/hmip-hcu-fusionsolar/releases/latest/download/hmip-hcu-fusionsolar-0.3.2.tar.gz)** — Installation in HCUweb über *Entwicklermodus → Plugins → Aus Datei installieren*.
 
 GitHub: <https://github.com/fabiorenner-hub/hmip-hcu-fusionsolar>
 
 Homematic IP HCU-Plugin zum lokalen Auslesen (und teilweise Steuern) einer
 Huawei-Sun2000-PV-Anlage via Modbus TCP, mit optionalem
-FusionSolar-Cloud-Fallback und ausfÃ¼hrlichem Debug-Dashboard.
+FusionSolar-Cloud-Fallback und ausführlichem Debug-Dashboard.
 
 ## Spenden
 
@@ -24,9 +24,9 @@ hält bei mir die Lichter an, während ich weitere HCU-Plugins baue:
 
 1. `hmip-hcu-fusionsolar-<version>.tar.gz` aus den
    [Releases](https://github.com/fabiorenner-hub/hmip-hcu-fusionsolar/releases) holen.
-2. In HCUweb *Entwicklermodus â†’ Plugins â†’ Aus Datei installieren* Ã¶ffnen und hochladen.
+2. In HCUweb *Entwicklermodus → Plugins → Aus Datei installieren* öffnen und hochladen.
 3. Plugin konfigurieren und optional das Debug-Dashboard unter
-   `http://<hcu-ip>:8088` Ã¶ffnen.
+   `http://<hcu-ip>:8088` öffnen.
 
 ## Selbst bauen
 
@@ -38,6 +38,15 @@ hält bei mir die Lichter an, während ich weitere HCU-Plugins baue:
 chmod +x build.sh
 ./build.sh    # macOS / Linux
 ```
+
+## Funktionen
+
+- Modbus-TCP-Polling für Sun2000 Wechselrichter, LUNA2000 Speicher und DTSU666-H Smart Meter.
+- Connect-API-Integration: virtuelle `INVERTER`-, `BATTERY`-, `GRID_CONNECTION_POINT`- und `ENERGY_METER`-Geräte.
+- Optionale virtuelle SWITCH-Geräte für erzwungene Lade- bzw. Entladevorgänge.
+- Optionaler FusionSolar-Cloud-Fallback (read-only).
+- HCUweb-Konfigurationsseite mit gruppierten Properties.
+- Lokales Debug-Dashboard auf Port 8088 mit Live-Werten, Register-Browser, Write-Register-Tool, Energieflussdiagramm.
 
 ## Herausgeber
 
