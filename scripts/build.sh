@@ -24,17 +24,17 @@ mkdir -p "$DIST"
 TAG="${IMAGE_NAME}:${VERSION}"
 OUT="$DIST/${IMAGE_NAME}-${VERSION}.tar.gz"
 
-echo "→ Engine:  $ENGINE"
-echo "→ Tag:     $TAG"
-echo "→ Output:  $OUT"
+echo "[*] Engine:  $ENGINE"
+echo "[*] Tag:     $TAG"
+echo "[*] Output:  $OUT"
 echo
 
 "$ENGINE" buildx build --platform linux/arm64 -t "$TAG" --load .
 
 echo
-echo "→ Saving image to $OUT"
+echo "[*] Saving image to $OUT"
 "$ENGINE" save "$TAG" | gzip -9 > "$OUT"
 
 SIZE=$(du -h "$OUT" | cut -f1)
 echo
-echo "✓ Built $SIZE → $OUT"
+echo "[OK] Built $SIZE -> $OUT"

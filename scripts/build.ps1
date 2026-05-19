@@ -28,9 +28,9 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
 $tag = "${ImageName}:${Version}"
 $out = Join-Path $dist "${ImageName}-${Version}.tar.gz"
 
-Write-Host "→ Engine:  $Engine"
-Write-Host "→ Tag:     $tag"
-Write-Host "→ Output:  $out"
+Write-Host "[*] Engine:  $Engine"
+Write-Host "[*] Tag:     $tag"
+Write-Host "[*] Output:  $out"
 Write-Host ""
 
 # Build for HCU2 (ARM64). Requires buildx or qemu-user-static on x86 hosts.
@@ -38,10 +38,10 @@ Write-Host ""
 if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 
 Write-Host ""
-Write-Host "→ Saving image to $out"
+Write-Host "[*] Saving image to $out"
 if (Test-Path $out) { Remove-Item $out -Force }
 
-# `docker save` writes to stdout; gzip via .NET so we don't depend on gzip.exe
+# Save image to a temp tar then gzip via .NET so we don't depend on gzip.exe
 $tmp = "$out.tmp"
 & $Engine save $tag -o $tmp
 if ($LASTEXITCODE -ne 0) { throw "Image save failed" }
@@ -57,4 +57,4 @@ Remove-Item $tmp -Force
 
 $size = (Get-Item $out).Length / 1MB
 Write-Host ""
-Write-Host ("✓ Built {0:N1} MB → {1}" -f $size, $out) -ForegroundColor Green
+Write-Host ("[OK] Built {0:N1} MB at {1}" -f $size, $out) -ForegroundColor Green
