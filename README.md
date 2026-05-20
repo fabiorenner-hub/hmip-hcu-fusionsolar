@@ -6,7 +6,9 @@
 
 # HMIP HCU Plugin: Sun2000 / FusionSolar
 
-📦 **[Download hmip-hcu-fusionsolar-0.3.2.tar.gz](https://github.com/fabiorenner-hub/hmip-hcu-fusionsolar/releases/latest/download/hmip-hcu-fusionsolar-0.3.2.tar.gz)** — install via HCUweb → *Developer mode → Plugins → Install from file*.
+📦 **[Download latest plugin .tar.gz](https://github.com/fabiorenner-hub/hmip-hcu-fusionsolar/releases/latest/download/hmip-hcu-fusionsolar.tar.gz)** — install via HCUweb → *Developer mode → Plugins → Install from file*.
+
+🆘 **Stuck?** See **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** — covers the SDongle Modbus-TCP setup, dongle firmware bugs, the FusionSolar app paths, and how to escalate to Huawei support.
 
 GitHub: <https://github.com/fabiorenner-hub/hmip-hcu-fusionsolar>
 

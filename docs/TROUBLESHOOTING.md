@@ -23,6 +23,24 @@ passenden Abschnitt springen.
 | Werte da, aber alle 0 W | Modbus liefert nichts trotz Verbindung | [Werte sind alle 0 W](#werte-sind-alle-0-w) |
 | Static-Read OK, Realtime fail | Klassischer SPC125-Bug | [Firmware-Update](#dongle-firmware-aktualisieren) |
 | Anlage zeigt Daten in FusionSolar, im Plugin nichts | Dongle leitet Modbus nicht weiter | [Firmware-Update](#dongle-firmware-aktualisieren) |
+| Kein Installer-Konto verfügbar | Standardmäßig nur Owner | [Installer-Konto bekommen](#installer-konto-bekommen) |
+
+### So sieht „läuft" aus
+
+Wenn alles funktioniert, ist das Bild im Plugin so:
+
+- Plugin-Logs zeigen einmalig `Inverter: SUN2000-…  SN …  FW V…` und danach
+  beim Polling **keine** Warnings mehr (höchstens nachts wenn der Inverter
+  abschaltet — dann gedrosselt einmal pro Minute „inverter asleep").
+- Dashboard → **Übersicht** zeigt Live-PV-Leistung, Hausverbrauch, Netz und
+  Speicher, nicht überall 0 W.
+- Dashboard → **Diagnose** → alle Checks grün außer ggf. „Daten aktuell"
+  bei Nacht.
+- HmIP-App: vier (oder fünf, mit dem Speicher-Schalter) virtuelle Geräte
+  mit aktuellen Leistungen.
+
+Wenn dein Bild anders aussieht: Spalte rechts in der Quick-Triage-Tabelle
+folgen.
 
 ### Bevor du anfängst
 
@@ -214,6 +232,99 @@ zurück. Im Zweifel:
 3. Dann „Slave-IDs durchprobieren" → ID 1 sollte mit einem Sample-Wert
    antworten
 
+### Installer-Konto bekommen
+
+Damit du selbst Firmware-Updates über das FusionSolar-Webportal anstoßen
+kannst (oder den Modbus-TCP-Schalter in der Inbetriebnahme-App siehst),
+brauchst du ein **Installer-Konto**. Ein normales Owner-Konto sieht weder
+den „Upgrade-Verwaltung"-Menüpunkt im Webportal noch die Installer-
+spezifischen Einstellungen in der App.
+
+Es gibt drei realistische Wege, an Installer-Rechte zu kommen, in
+absteigender Reihenfolge der Empfehlung:
+
+#### A. Über deinen Original-Installateur (am einfachsten)
+
+Die Firma, die deine Anlage installiert hat, hat fast garantiert ein
+Installer-Konto im FusionSolar-System. Der dortige Mitarbeiter kann:
+
+1. Sich am Webportal mit seinem Installer-Konto einloggen
+2. Auf deine Anlage navigieren
+3. Wartung → Upgrade-Verwaltung → Einzel-Upgrade → SDongle/Inverter
+   auswählen → Update auslösen
+
+Aufwand für den Installateur: 5 Minuten. Kostet typischerweise nichts,
+da es Teil der Anlagenpflege ist. Frag einfach mit dem Stichwort
+**„SDongle Firmware-Update auf neueste Version"**, idealerweise zusammen
+mit deiner Anlagen-Kennung (PVN oder Plant Name aus FusionSolar).
+
+#### B. Eigenes Installer-Konto registrieren
+
+Theoretisch kannst du dich selbst als „Installer" beim FusionSolar-
+Webportal anmelden. Praktisch ist die Registrierung dafür aber nicht
+für Endkunden gedacht — sie verlangt entweder eine Einladung von einem
+bereits registrierten Installer-Unternehmen, eine Gewerbeanmeldung oder
+in manchen Fällen eine Huawei-Partner-ID.
+
+Die App bietet unter der Login-Maske den Punkt „Registrieren" → „Ich bin
+Installer" an. Wenn dein Land das ohne Firmenkonto erlaubt, ist das ein
+gangbarer Weg, sonst bleibt's auf der Eingabe einer Firmen-Steuernummer
+hängen. Hängt regional stark ab.
+
+#### C. Über Huawei-Support
+
+Wenn A und B beide nicht klappen, ist der Weg über die Support-Mail
+zuverlässig. Huawei schickt dir die Firmware-Datei per Mail zu, du
+spielst sie selbst in der FusionSolar-App lokal ein:
+
+1. Eine Mail an `eu_inverter_support@huawei.com` (Mail-Vorlage siehe
+   weiter unten unter [Beim Huawei-Support melden](#beim-huawei-support-melden)).
+2. Antwort kommt innerhalb von 1–2 Werktagen mit einem `.zip` oder
+   `.bin` mit Anleitung.
+3. Anleitung zum Einspielen über die FusionSolar-App im Inbetriebnahme-
+   Modus → Dongle direkt verbinden → Wartung → „Lokales Software-Upgrade".
+
+Vorteil: kein Installer-Konto nötig.
+Nachteil: 1–2 Tage Wartezeit, und du brauchst ein Android-Gerät — die
+iOS-App von FusionSolar unterstützt das lokale Firmware-Update nicht.
+
+### Firmware-Update über das FusionSolar-Webportal (Schritt für Schritt)
+
+Wenn du Installer-Rechte hast (eigene oder vom Installateur), ist das
+der bequemste Weg.
+
+1. Browser öffnen, **https://eu5.fusionsolar.huawei.com** aufrufen.
+   Falls du in einer anderen Region bist: `intl.fusionsolar.huawei.com`
+   oder die regionale Subdomain.
+2. **Mit dem Installer-Konto** einloggen.
+3. In der Hauptnavigation oben **„Wartung"** auswählen (englisch:
+   „Maintenance").
+4. Untermenü **„Upgrade-Verwaltung" → „Einzel-Upgrade"** öffnen
+   (englisch: „Upgrade Management" → „Single Upgrade").
+5. **Anlage suchen**: oben rechts den Filter auf deine Anlage setzen
+   (per Name oder PVN).
+6. **Geräteart filtern**: links auf **„Smart Dongle"** schalten — die
+   Liste zeigt jetzt deinen SDongleA-05.
+7. Den Dongle anhaken (Checkbox links).
+8. Spalte **„Zielversion"**: aus der Dropdown-Liste die neueste
+   verfügbare Version wählen (typisch **V100R001C00SPC210** oder neuer,
+   manchmal gibt's auch eine V200R022-Version).
+9. **„Jetzt aktualisieren"** klicken, Bestätigung im Popup mit „OK"
+   bestätigen.
+10. Die Statusspalte wechselt auf **„Wird ausgeführt"**. Dauer:
+    15–25 Minuten. **Anlage darf in der Zeit nicht stromlos werden**,
+    Cloud-Verbindung muss halten.
+11. Nach Abschluss zeigt die Statusspalte **„Erfolgreich"** an. Der
+    Dongle bootet automatisch neu.
+12. **Wichtig danach**: Modbus-TCP-Einstellung kontrollieren — siehe
+    Abschnitt [Nach dem Update](#nach-dem-update). Manche Versionssprünge
+    setzen die Einstellung auf den Default zurück.
+
+Falls das Menü „Einzel-Upgrade" leer ist oder dein Gerät nicht
+auftaucht: dein Konto hat Installer-Rolle, aber keine Upgrade-Permission
+für deine Anlage. Lass deinen Original-Installateur dich als
+„Lifecycle-Manager" auf der Anlage hinzufügen, oder geh den Support-Weg.
+
 ### Alternative: RS485-Bypass
 
 Wenn die Dongle-Probleme auch nach Firmware-Update nicht weggehen oder
@@ -319,6 +430,24 @@ Read the top table first, then jump to the matching section.
 | Values present but all 0 W | Modbus returns nothing despite link | [All values are 0 W](#all-values-are-0-w) |
 | Static read OK, realtime fails | Classic SPC125 firmware bug | [Update dongle firmware](#update-dongle-firmware) |
 | FusionSolar app shows data, plugin shows nothing | Dongle not relaying Modbus | [Update dongle firmware](#update-dongle-firmware) |
+| No installer account | Default end-user role is Owner | [Getting an installer account](#getting-an-installer-account) |
+
+### What "working" looks like
+
+When everything is healthy, the picture in the plugin is:
+
+- Plugin logs show `Inverter: SUN2000-…  SN …  FW V…` once at startup, and
+  no more warnings during polling (at most a once-per-minute "inverter
+  asleep" line at night when the inverter shuts down).
+- Dashboard → **Overview** shows live PV power, house load, grid and
+  battery — not all zero.
+- Dashboard → **Diagnostics** → all checks green except possibly "Data
+  fresh" at night.
+- HmIP app: four (or five with the battery switch) virtual devices
+  reporting current readings.
+
+If your picture differs: follow the right-hand column of the quick
+triage table.
 
 ### Before you start
 
@@ -500,6 +629,93 @@ To be safe:
 2. Plugin dashboard → Diagnostics → "TCP probe" — should report ok
    in <50 ms
 3. Then "Slave ID probe" → id 1 should answer with a sample value
+
+### Getting an installer account
+
+To trigger firmware updates from the FusionSolar web portal yourself
+(or to see installer-only options in the commissioning app), you need
+an **installer account**. A normal owner account does not see the
+"Upgrade Management" menu in the web portal or the installer-specific
+settings in the app.
+
+Three realistic ways, in order of how much I'd recommend them:
+
+#### A. Through your original installer (easiest)
+
+The company that installed your plant almost certainly has an installer
+account on FusionSolar. They can:
+
+1. Log in to the web portal with their installer credentials
+2. Navigate to your plant
+3. Maintenance → Upgrade Management → Single Upgrade → pick your
+   dongle/inverter → push the update
+
+Effort for them: 5 minutes. Usually free as it's part of routine
+maintenance. Just ask for the **"SDongle firmware update to the latest
+version"**, ideally with your plant identifier (PVN or plant name from
+FusionSolar).
+
+#### B. Register your own installer account
+
+In theory you can register yourself as "installer" on the FusionSolar
+portal. In practice the registration is not designed for end users —
+it asks for either an invitation from an already-registered installer
+company, a business registration number, or in some regions a Huawei
+partner id.
+
+The app login screen has a "Register" → "I'm an installer" entry. If
+your country allows it without a company tax number, this is a viable
+path; otherwise you'll get stuck on the company validation step.
+Region-dependent.
+
+#### C. Through Huawei support
+
+When A and B don't work, the support-email path is reliable. Huawei
+sends you the firmware as a file by email; you flash it locally via
+the FusionSolar app:
+
+1. Email `eu_inverter_support@huawei.com` (template at
+   [Reaching out to Huawei support](#reaching-out-to-huawei-support)).
+2. Reply within 1–2 working days with a `.zip` or `.bin` plus
+   instructions.
+3. Flash via FusionSolar app in commissioning mode → connect directly
+   to the dongle → Maintenance → "Local software upgrade".
+
+Pro: no installer account needed.
+Con: 1–2 days wait, and you need an Android device — the iOS app does
+not support local firmware updates.
+
+### Firmware update via the FusionSolar web portal (step by step)
+
+If you have installer rights (your own or via your installer), this is
+the most convenient path.
+
+1. Open a browser, go to **https://eu5.fusionsolar.huawei.com**.
+   For other regions: `intl.fusionsolar.huawei.com` or your regional
+   subdomain.
+2. Log in with the **installer account**.
+3. In the top navigation pick **"Maintenance"**.
+4. Open submenu **"Upgrade Management" → "Single Upgrade"**.
+5. **Find the plant**: filter top-right to your plant (by name or PVN).
+6. **Filter device type** in the left sidebar to **"Smart Dongle"** —
+   the list now shows your SDongleA-05.
+7. Tick the dongle's checkbox.
+8. Column **"Target version"**: pick the newest from the dropdown
+   (typically **V100R001C00SPC210** or newer, sometimes a V200R022
+   variant).
+9. Click **"Upgrade Now"**, confirm in the popup with "OK".
+10. Status switches to **"In progress"**. Duration: 15–25 minutes.
+    **Power must stay on**, the cloud connection must hold.
+11. When done the column shows **"Successful"**. The dongle reboots
+    automatically.
+12. **Important next step**: re-check the Modbus-TCP setting — see
+    [After the update](#after-the-update). Big version jumps sometimes
+    reset that setting to the default.
+
+If "Single Upgrade" is empty or your device is missing: your account
+has the installer role but not the upgrade permission for this plant.
+Ask your original installer to add you as "lifecycle manager" on the
+plant, or use the support route.
 
 ### Alternative: RS485 bypass
 
