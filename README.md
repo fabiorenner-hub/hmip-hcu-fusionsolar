@@ -48,6 +48,15 @@ chmod +x build.sh
 - HCUweb config page with grouped properties.
 - Local debug dashboard on port 8088 with live values, register browser, write-register tool, energy-flow diagram.
 
+## Troubleshooting
+
+Having trouble? Plugin connects to the dongle but reads time out, or values
+stay at 0 W? Connection drops every 10 s with `socket closed by peer`?
+
+→ See **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** for a structured
+walkthrough (DE + EN), including dongle firmware bugs, the FusionSolar app
+settings that matter, and how to escalate to Huawei support.
+
 ## Author
 
 Issued by **Fabio Renner**.
