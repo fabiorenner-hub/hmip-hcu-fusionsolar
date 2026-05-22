@@ -7,7 +7,7 @@ const history = require("../history");
 const hcuLog = require("../hcuLog");
 const { REG } = require("../sun2000/registers");
 
-function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStatus, getDevices }) {
+function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStatus, getDevices, scheduleReset, clearPersistedSn }) {
 	const app = express();
 	app.use(express.json({ limit: "256kb" }));
 	app.use(express.static(path.join(__dirname, "public"), { etag: true, maxAge: "1h" }));
@@ -195,6 +195,42 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 	app.post("/api/config", async (req, res) => {
 		try {
 			const merged = await saveConfig(req.body || {});
+			res.json(redactConfig(merged));
+			broadcast("snapshot", buildPayload());
+		} catch (e) {
+			res.status(500).json({ error: e.message });
+		}
+	});
+
+	// Schedule a full config reset for the next plugin start. We don't tear
+	// down the live process from inside the request — that would race the
+	// HTTP response. The HCU restarts the container automatically when the
+	// node process exits, so we schedule a clean exit a moment after replying.
+	app.post("/api/config/reset", async (req, res) => {
+		const confirm = req.body?.confirm === "RESET";
+		if (!confirm) {
+			return res.status(400).json({
+				error: 'Pass {"confirm":"RESET"} to confirm. This wipes inverter host, dashboard port, FusionSolar credentials and the persisted SN.',
+			});
+		}
+		try {
+			scheduleReset();
+			res.json({ ok: true, message: "Reset scheduled. Plugin will exit in 2 s and the HCU will restart it with default config." });
+			setTimeout(() => {
+				log.info("Exiting to apply scheduled reset");
+				process.exit(0);
+			}, 2000);
+		} catch (e) {
+			res.status(500).json({ error: e.message });
+		}
+	});
+
+	// Drop only the persisted SN — useful after replacing the inverter or
+	// after wiping HmIP devices and wanting fresh device IDs without
+	// re-entering the rest of the config.
+	app.post("/api/config/clear-sn", async (_req, res) => {
+		try {
+			const merged = clearPersistedSn();
 			res.json(redactConfig(merged));
 			broadcast("snapshot", buildPayload());
 		} catch (e) {

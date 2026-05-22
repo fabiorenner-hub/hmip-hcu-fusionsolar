@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.7
+- Dashboard → Konfig: zwei neue Wartungs-Knöpfe.
+  - **„Geräte-Identität zurücksetzen"** löscht nur die persistierte
+    Inverter-SN. Der Rest der Konfig bleibt. Beim nächsten erfolgreichen
+    Modbus-Read wird eine frische SN gespeichert. Sinnvoll wenn man die
+    HmIP-Geräte komplett neu anlegen lassen will.
+  - **„Komplett-Reset"** schreibt eine `/data/.reset_on_next_boot`-Marker-
+    Datei und beendet das Plugin nach 2 s. Beim nächsten Start (HCU
+    restartet den Container automatisch) wird `/data/config.json` gelöscht
+    und das Plugin startet mit Default-Werten. Doppelt bestätigt
+    (Confirm + „RESET" eintippen).
+- API-Endpoints `POST /api/config/clear-sn` und `POST /api/config/reset`
+  (letzterer braucht `{"confirm":"RESET"}` im Body).
+
 ## 0.3.6
 - **Soft config updates**: changes to non-Modbus settings (dashboard,
   hardware flags, cloud) no longer tear down the Modbus TCP connection.

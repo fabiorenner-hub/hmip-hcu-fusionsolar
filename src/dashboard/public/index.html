@@ -359,6 +359,22 @@
 					<button id="saveConfig" type="button">Speichern</button>
 					<span id="saveStatus" class="muted"></span>
 				</div>
+
+				<div class="card">
+					<h3>Wartung / Reset</h3>
+					<p class="muted">
+						Diese Aktionen sind unumkehrbar. „Geräte-Identität zurücksetzen"
+						löscht nur die persistierte Inverter-SN, sodass beim nächsten
+						erfolgreichen Lesen frische HmIP-Geräte-IDs vergeben werden.
+						„Komplett-Reset" wirft die ganze Konfig weg und startet das
+						Plugin mit den Standardwerten neu.
+					</p>
+					<div class="row">
+						<button id="btnClearSn" class="ghost">Geräte-Identität zurücksetzen</button>
+						<button id="btnFullReset" class="danger">Komplett-Reset</button>
+						<span id="resetStatus" class="muted"></span>
+					</div>
+				</div>
 			</section>
 
 			<!-- ── Logs ───────────────────────────────────────────── -->

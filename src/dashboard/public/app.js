@@ -654,6 +654,45 @@ $("saveConfig").addEventListener("click", async () => {
 	$("saveStatus").textContent = `${t("saved")} ${new Date().toLocaleTimeString()}`;
 });
 
+document.getElementById("btnClearSn")?.addEventListener("click", async () => {
+	if (!confirm("Persistierte Seriennummer löschen?\n\nBeim nächsten erfolgreichen Modbus-Read wird eine neue gesetzt. HmIP-Geräte werden mit neuen IDs angemeldet — alte können in der HmIP-App als „nicht erreichbar" auftauchen und müssen dort entfernt werden.")) return;
+	const btn = document.getElementById("btnClearSn");
+	btn.disabled = true;
+	try {
+		const r = await fetch("/api/config/clear-sn", { method: "POST" }).then((x) => x.json());
+		document.getElementById("resetStatus").textContent = r.error
+			? "Fehler: " + r.error
+			: `Geräte-Identität geleert um ${new Date().toLocaleTimeString()}`;
+	} finally {
+		btn.disabled = false;
+	}
+});
+
+document.getElementById("btnFullReset")?.addEventListener("click", async () => {
+	const ok1 = confirm("Komplett-Reset?\n\nLöscht ALLE Konfig-Werte (Inverter-IP, Dashboard-Port, FusionSolar-Zugang, Geräte-Identität). Plugin startet sofort neu, /data/config.json wird ersetzt.");
+	if (!ok1) return;
+	const ok2 = prompt('Zur Bestätigung „RESET" eingeben:') === "RESET";
+	if (!ok2) {
+		document.getElementById("resetStatus").textContent = "Reset abgebrochen.";
+		return;
+	}
+	const btn = document.getElementById("btnFullReset");
+	btn.disabled = true;
+	document.getElementById("resetStatus").textContent = "Reset läuft, Plugin startet in 2 s neu …";
+	try {
+		await fetch("/api/config/reset", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ confirm: "RESET" }),
+		});
+		// Plugin wird gleich beendet; Stream-Verbindung bricht ab.
+		setTimeout(() => location.reload(), 8000);
+	} catch (e) {
+		document.getElementById("resetStatus").textContent = "Fehler: " + e.message;
+		btn.disabled = false;
+	}
+});
+
 // ── Diagnostics ───────────────────────────────────────────────
 async function refreshDiag() {
 	const r = await fetch("/api/diagnostics").then((x) => x.json());

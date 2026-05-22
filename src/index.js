@@ -176,6 +176,8 @@ const dashboard = (() => {
 				}
 				return next;
 			},
+			scheduleReset: config.scheduleReset,
+			clearPersistedSn: config.clearPersistedSn,
 			getHcuStatus: () => ({
 				connected: hcu.connected,
 				includedDevices: hcu.includedDeviceIds.size,
