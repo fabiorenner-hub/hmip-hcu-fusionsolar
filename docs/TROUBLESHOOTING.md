@@ -42,6 +42,55 @@ Wenn alles funktioniert, ist das Bild im Plugin so:
 Wenn dein Bild anders aussieht: Spalte rechts in der Quick-Triage-Tabelle
 folgen.
 
+### Werte vergleichen — FusionSolar vs. Plugin
+
+Wenn die Zahlen in der FusionSolar-App und im Plugin nicht 1:1 übereinstimmen,
+ist das **nicht zwingend ein Fehler**. Hintergründe:
+
+- **Zeitversatz**: Die FusionSolar-App zeigt Cloud-Daten mit 30 s bis 5 min
+  Verzögerung. Das Plugin liest live alle 10 s. Bei wechselhafter Bewölkung
+  sind ±2 kW innerhalb einer Minute völlig normal.
+- **DC vs. AC**: Die FusionSolar-„PV"-Anzeige ist die DC-Leistung am
+  Wechselrichter-Eingang. Das HmIP-Gerät „SUN2000" zeigt die AC-Wirkleistung
+  am Ausgang. Bei Speicher-Beteiligung kommen Beiträge dazu, bei Eigenverbrauch
+  des Wechselrichters gehen welche ab. Differenzen von 100–500 W sind normal.
+- **Bilanz prüfen**: Die einzige verlässliche Konsistenzprüfung ist die
+  Energiebilanz. Bei dir (Beispiel aus realer Installation):
+  - FusionSolar: PV 4368 = Haus 393 + Grid 3975 ✓
+  - Plugin: AC 5860 − Grid 5280 = Haus 580 ✓
+  Beide gehen für sich auf — nur unterschiedliche Augenblicke.
+- **Speicher-Rauschen**: Wenn der Speicher voll und idle ist, zeigt das
+  Plugin oft 20–50 W (das BMS-Eigenrauschen). FusionSolar rundet das auf
+  0 W. Beides ist korrekt.
+
+### Doppelte Geräte in der HmIP-App
+
+Wenn nach einem Update oder Konfig-Wechsel auf einmal **doppelte Geräte**
+(„SUN2000 (1)", „SUN2000 (2)") auftauchen und eines davon als
+„nicht erreichbar" markiert ist:
+
+Das war ein Bug in Plugin-Versionen vor 0.3.5. Damals wurde die Geräte-ID
+aus der live gelesenen Inverter-SN abgeleitet. Wenn der erste Static-Read
+fehlschlug (träger Modbus, Nachtmodus), kam ein generischer Fallback-Name
+zum Einsatz. Beim nächsten erfolgreichen Start wurden Geräte mit der
+echten SN als ID gemeldet — die HCU sah die als „neue" Geräte an, die
+alten blieben als „nicht erreichbar" stehen.
+
+**Fix**: Ab 0.3.5 wird die SN beim ersten erfolgreichen Read in
+`/data/config.json` als `persistedSn` gespeichert. Folgestarts benutzen
+immer denselben Wert.
+
+**Bereinigung der HmIP-App**:
+
+1. In der HmIP-App auf **Geräte** → **alle anzeigen** wechseln.
+2. Die mit „nicht erreichbar" markierten doppelten Geräte antippen.
+3. **Aus dem System entfernen**.
+4. Die übrig gebliebenen sind die richtigen, mit stabilen IDs.
+
+Falls du noch immer doppelte siehst nach dem Update auf 0.3.5: einmal
+Plugin neu starten, dann sollte `/data/config.json` einen Eintrag
+`"persistedSn": "BT21..."` enthalten. Ab dann passiert es nicht mehr.
+
 ### Bevor du anfängst
 
 Drei Dinge solltest du jederzeit kennen:
@@ -448,6 +497,57 @@ When everything is healthy, the picture in the plugin is:
 
 If your picture differs: follow the right-hand column of the quick
 triage table.
+
+### Comparing values: FusionSolar vs. plugin
+
+If FusionSolar app numbers don't match the plugin 1:1, that is **not
+necessarily a bug**. Reasons:
+
+- **Time skew**: the FusionSolar app shows cloud-aggregated data with
+  30 s to 5 min latency. The plugin reads live every 10 s. With
+  changing cloud cover, ±2 kW swings within a minute are normal.
+- **DC vs AC**: FusionSolar's "PV" reading is DC power at the
+  inverter input. The plugin's `SUN2000` device exposes AC active
+  power at the output. With battery involvement, contributions add
+  up; with inverter self-consumption, some power is lost. 100–500 W
+  differences are routine.
+- **Balance check**: the only solid consistency check is the energy
+  balance. Real-world example:
+  - FusionSolar: PV 4368 = house 393 + grid 3975 ✓
+  - Plugin: AC 5860 − grid 5280 = house 580 ✓
+  Each side balances on its own — they're just different moments.
+- **Battery noise**: when the battery is full and idle, the plugin
+  often reports 20–50 W (BMS self-consumption). FusionSolar rounds
+  that to 0 W. Both are correct.
+
+### Duplicate devices in the HmIP app
+
+If after an update or config change you suddenly see **duplicate
+devices** ("SUN2000 (1)", "SUN2000 (2)") with one of them flagged as
+"not reachable":
+
+This was a bug in plugin versions before 0.3.5. Device IDs were
+derived from the live-read inverter SN. When the first static read
+failed (slow Modbus, night mode), a generic fallback name was used.
+On the next successful start, devices were announced with the real
+SN as ID — the HCU treated them as new, the old ones stayed as
+"unreachable".
+
+**Fix**: from 0.3.5 onward the SN is persisted to `/data/config.json`
+as `persistedSn` on the first successful read. Subsequent starts
+always use the same value.
+
+**Cleanup in the HmIP app**:
+
+1. Go to **Devices → show all**.
+2. Tap the duplicate ones flagged as "not reachable".
+3. **Remove from system**.
+4. The ones that remain are the correct, stable-ID devices.
+
+If you still see duplicates after upgrading to 0.3.5: restart the
+plugin once, then `/data/config.json` should contain a
+`"persistedSn": "BT21..."` entry. From then on it will not happen
+again.
 
 ### Before you start
 

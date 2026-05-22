@@ -28,6 +28,11 @@ const DEFAULTS = {
 	cloudPassword: "",
 	cloudSubdomain: "region01eu5",
 	cloudCaptchaModelPath: "",
+	// Persistent identity: stable inverter SN captured on first successful
+	// static read. Keeps HmIP device IDs constant across plugin restarts,
+	// even when the very first read fails (typical at night or during
+	// firmware updates). Once set, never changed automatically.
+	persistedSn: "",
 	// Local dashboard.
 	dashboardPort: 8088,
 	dashboardEnabled: true,

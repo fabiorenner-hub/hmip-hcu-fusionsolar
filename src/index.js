@@ -65,6 +65,16 @@ function publishStatusEvents() {
 	// Remember SN for the control mapper:
 	config.get()._lastSn = snap.static?.sn;
 
+	// Persist the inverter SN the very first time we see one. From then on
+	// HmIP device IDs stay constant across plugin restarts even if a later
+	// startup fails to read the SN immediately (slow Modbus, night mode).
+	const liveSn = snap.static?.sn;
+	const cfg = config.get();
+	if (liveSn && !cfg.persistedSn) {
+		log.info(`Persisting inverter SN ${liveSn} for stable device IDs`);
+		config.save({ persistedSn: liveSn });
+	}
+
 	const included = hcu.includedDeviceIds;
 	for (const d of devices) {
 		if (!included.size || included.has(d.deviceId)) {

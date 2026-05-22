@@ -22,7 +22,12 @@ function clampSoc(socPercent) {
 }
 
 function buildDevices(config, snapshot) {
-	const sn = snapshot.static.sn;
+	// Prefer the persisted SN. This is the SN we observed on the very first
+	// successful static read and saved to /data/config.json. Falling back
+	// to the live SN only on a fresh install — and to a generic literal as
+	// a last resort, but that path means HmIP devices will be re-registered
+	// once a real SN appears, which we want to avoid.
+	const sn = config.persistedSn || snapshot.static.sn;
 	const model = snapshot.static.model || "Sun2000";
 	const fw = snapshot.static.firmwareVersion || "0.0.0";
 	const v = snapshot.values || {};
@@ -145,7 +150,7 @@ function numOr0(v) {
 // Reverse mapping for ControlRequest: turn an incoming device control
 // request into a Modbus write.
 async function handleControl(modbus, config, deviceId, features) {
-	const sn = config._lastSn || "sun2000";
+	const sn = config.persistedSn || config._lastSn || "sun2000";
 	const forceChargeId = did(sn, "force-charge");
 	if (deviceId === forceChargeId) {
 		const sw = features.find((f) => f.type === "switchState");

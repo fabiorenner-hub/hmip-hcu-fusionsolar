@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.5
+- Stable HmIP device IDs across plugin restarts: the inverter serial number
+  is now persisted to `/data/config.json` (`persistedSn`) on the first
+  successful Modbus read. Later restarts always use the same value, so
+  HmIP devices no longer get re-registered as duplicates when the very
+  first static read fails (slow Modbus, night mode, firmware update).
+- Config form: new read-only "Used serial number" entry under a new
+  "Device identity" group, so users can verify which SN drives the IDs.
+- Troubleshooting docs (DE + EN) extended:
+  - "Comparing values: FusionSolar vs. plugin" — explains why DC vs AC,
+    cloud lag and battery idle noise look like discrepancies.
+  - "Duplicate devices in the HmIP app" — explains the pre-0.3.5 bug
+    and how to clean up.
+  - "Getting an installer account" — three concrete paths
+    (your installer, self-register, Huawei support).
+  - "Firmware update via the FusionSolar web portal" — full step-by-step.
+
 ## 0.3.4
 - Modbus block reads: instead of issuing one request per register, contiguous
   registers are now read in a single Modbus call. A poll cycle that previously

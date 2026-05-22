@@ -55,6 +55,14 @@ $outStream.Close()
 $inStream.Close()
 Remove-Item $tmp -Force
 
+# Also produce a versionless copy that the README "latest" download link
+# points to. Both files end up in dist/ and should be uploaded as release
+# assets; the versionless one is what makes the static README URL stay
+# valid across releases.
+$outLatest = Join-Path $dist "${ImageName}.tar.gz"
+Copy-Item -Force $out $outLatest
+
 $size = (Get-Item $out).Length / 1MB
 Write-Host ""
 Write-Host ("[OK] Built {0:N1} MB at {1}" -f $size, $out) -ForegroundColor Green
+Write-Host ("[OK] Latest copy   at {0}" -f $outLatest) -ForegroundColor Green

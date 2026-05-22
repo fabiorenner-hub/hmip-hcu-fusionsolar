@@ -35,6 +35,11 @@ echo
 echo "[*] Saving image to $OUT"
 "$ENGINE" save "$TAG" | gzip -9 > "$OUT"
 
+# Also produce a versionless copy that the README's "latest" URL points to.
+LATEST="$DIST/${IMAGE_NAME}.tar.gz"
+cp -f "$OUT" "$LATEST"
+
 SIZE=$(du -h "$OUT" | cut -f1)
 echo
 echo "[OK] Built $SIZE -> $OUT"
+echo "[OK] Latest copy at $LATEST"

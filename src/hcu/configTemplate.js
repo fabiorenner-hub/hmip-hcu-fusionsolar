@@ -36,6 +36,13 @@ function build(currentConfig, languageCode = "de") {
 				: "Optional, read-only. Disabled by default. Used only when local Modbus is unreachable.",
 			order: 4,
 		},
+		identity: {
+			friendlyName: de ? "Geräte-Identität" : "Device identity",
+			description: de
+				? "Stabile Kennung für die HmIP-Geräte. Wird automatisch gesetzt sobald die Inverter-Seriennummer das erste Mal gelesen werden konnte."
+				: "Stable identifier for the HmIP devices. Set automatically once the inverter serial is read for the first time.",
+			order: 5,
+		},
 	};
 
 	const properties = {
@@ -181,6 +188,17 @@ function build(currentConfig, languageCode = "de") {
 			minimumLength: 0,
 			maximumLength: 30,
 		},
+
+		persistedSn: {
+			dataType: "READONLY",
+			groupId: "identity",
+			order: 1,
+			friendlyName: de ? "Verwendete Seriennummer" : "Used serial number",
+			description: de
+				? "Aus dieser SN werden die HmIP-Geräte-IDs abgeleitet. Wird einmalig beim ersten erfolgreichen Modbus-Read gesetzt und danach nie mehr automatisch geändert."
+				: "HmIP device IDs are derived from this serial. Set once on the first successful Modbus read and never automatically changed afterwards.",
+			currentValue: c.persistedSn || (de ? "(noch nicht erfasst)" : "(not captured yet)"),
+		},
 	};
 
 	return { groups, properties };
@@ -190,6 +208,8 @@ function build(currentConfig, languageCode = "de") {
 function applyUpdate(currentConfig, properties) {
 	const next = { ...currentConfig };
 	for (const [key, raw] of Object.entries(properties || {})) {
+		// Never accept changes to read-only / identity-related fields.
+		if (key === "persistedSn") continue;
 		switch (key) {
 			case "inverterHost":
 			case "cloudUser":
