@@ -10,3 +10,8 @@ dist/*
 !dist/.gitkeep
 *.tar.gz
 *.tar
+
+# Local scratch / release scratch
+_release_notes.md
+_smoke*.js
+_probe.js
