@@ -72,6 +72,22 @@ class Poller extends EventEmitter {
 		await this.start();
 	}
 
+	// Soft update for config changes that do NOT affect the Modbus connection.
+	// Avoids tearing down the live TCP socket on dashboard / cloud / hardware-
+	// flag changes — those would trigger the SDongle to reject reconnects for
+	// many minutes (a known firmware quirk).
+	updateConfig(newConfig) {
+		const old = this.config || {};
+		const connChanged =
+			old.inverterHost !== newConfig.inverterHost ||
+			old.inverterPort !== newConfig.inverterPort ||
+			old.inverterUnitId !== newConfig.inverterUnitId;
+		if (connChanged) return false;
+		this.config = newConfig;
+		log.info("Poller config updated in-place (no Modbus reconnect)");
+		return true;
+	}
+
 	getSnapshot() {
 		return this.snapshot;
 	}
@@ -118,8 +134,17 @@ class Poller extends EventEmitter {
 					READ_BLOCKS.batteryStatic.names
 				);
 			}
-			this.snapshot.static = { ...data, ...bat };
-			log.info(`Inverter: ${data.model || "?"} SN ${data.sn || "?"} FW ${data.firmwareVersion || "?"}`);
+			// Merge non-null values onto existing static info: if the dongle
+			// flakes during this read, we don't want to overwrite a previously
+			// good SN/model/FW with nulls.
+			const merged = { ...this.snapshot.static };
+			for (const [k, v] of Object.entries({ ...data, ...bat })) {
+				if (v !== null && v !== undefined && v !== "") merged[k] = v;
+			}
+			this.snapshot.static = merged;
+			if (data.sn || data.model || data.firmwareVersion) {
+				log.info(`Inverter: ${merged.model || "?"} SN ${merged.sn || "?"} FW ${merged.firmwareVersion || "?"}`);
+			}
 		} catch (e) {
 			log.warn(`Static read failed: ${e.message}`);
 		}

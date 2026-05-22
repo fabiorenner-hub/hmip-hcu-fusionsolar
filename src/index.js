@@ -123,7 +123,15 @@ hcu.on("configUpdateRequest", async (msg) => {
 	try {
 		const next = cfgTpl.applyUpdate(config.get(), msg.body?.properties || {});
 		config.save(next);
-		await poller.restart(config.get());
+		// Only tear down the Modbus connection if the connection-relevant
+		// fields actually changed. Reconnecting against the SDongle when it
+		// isn't necessary triggers its rate-limiter and locks us out for
+		// 10+ minutes.
+		const softUpdated = poller.updateConfig(config.get());
+		if (!softUpdated) {
+			log.info("Modbus connection settings changed — restarting poller");
+			await poller.restart(config.get());
+		}
 		dashboard.maybeRestart(config.get());
 		hcu.send(
 			M.configUpdateResponse(
@@ -161,7 +169,11 @@ const dashboard = (() => {
 			getConfig: () => config.get(),
 			saveConfig: async (patch) => {
 				const next = config.save(patch);
-				await poller.restart(next);
+				const softUpdated = poller.updateConfig(next);
+				if (!softUpdated) {
+					log.info("Modbus connection settings changed via dashboard — restarting poller");
+					await poller.restart(next);
+				}
 				return next;
 			},
 			getHcuStatus: () => ({

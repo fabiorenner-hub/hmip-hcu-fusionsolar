@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.6
+- **Soft config updates**: changes to non-Modbus settings (dashboard,
+  hardware flags, cloud) no longer tear down the Modbus TCP connection.
+  The previous behavior triggered the SDongle's reconnect rate-limiter,
+  which then RST'd every connection for 10+ minutes after every config
+  save. Only changes to host / port / unit-id reset the poller now.
+- **30 s cooldown after `socket closed by peer`**: the SDongle keeps a
+  rate-limiter on rapid reconnects. When it RSTs us, we now wait 30 s
+  before the next connect attempt instead of immediately reconnecting.
+  This breaks the "connect → RST → connect → RST" loop that filled
+  the logs every 11 s.
+- **Static info merge instead of overwrite**: a flaky read no longer
+  blanks out the previously known SN/model/FW. The "Inverter: ? SN ?
+  FW ?" log line is gone for good — startup logs only the first
+  successful identification.
+- **Logs**: identical "closed by peer" warnings throttled to 1×/min.
+
 ## 0.3.5
 - Stable HmIP device IDs across plugin restarts: the inverter serial number
   is now persisted to `/data/config.json` (`persistedSn`) on the first

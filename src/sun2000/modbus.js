@@ -9,12 +9,16 @@
 // 2. Some firmwares answer slowly right after wake-up, so we use a long
 //    read timeout (8 s) and a short pause between requests.
 // 3. To keep logs readable, repeated identical warnings are throttled.
+// 4. The SDongle has a strong rate-limiter on reconnects — if you
+//    disconnect and reconnect in <30 s, the next ~10 minutes' connections
+//    will all be RST'd within milliseconds. We therefore enforce a
+//    minimum cooldown after a "closed by peer" event.
 //
 // State machine:
 //   not-connected -> connecting -> connected (TCP) -> ...
 //   connected + reads succeed   ⇒ healthy
 //   connected + reads timeout   ⇒ asleep (probably night) — keep socket
-//   connected + socket error    ⇒ drop, reconnect
+//   connected + socket error    ⇒ drop, reconnect after cooldown
 
 const ModbusRTU = require("modbus-serial");
 const log = require("../logger");
@@ -23,6 +27,7 @@ const { REG, decode, encode } = require("./registers");
 const READ_DELAY_MS = 80;
 const REQUEST_TIMEOUT_MS = 8000;
 const RECONNECT_DELAY_MS = 3000;
+const PEER_CLOSE_COOLDOWN_MS = 30_000; // SDongle rate-limiter: wait before reconnecting
 const WARN_THROTTLE_MS = 60_000; // same warning at most once per minute
 
 class Sun2000Modbus {
@@ -34,6 +39,7 @@ class Sun2000Modbus {
 		// Counters surfaced via getStatus() for the diagnostics tab.
 		this.stats = { reads: 0, readsOk: 0, readsTimeout: 0, readsError: 0, writes: 0, lastError: null };
 		this._warnedAt = new Map();
+		this._lastPeerCloseAt = 0;
 	}
 
 	_warnThrottled(key, message) {
@@ -64,6 +70,7 @@ class Sun2000Modbus {
 				});
 				sock.on("close", () => {
 					if (this.connected) {
+						this._lastPeerCloseAt = Date.now();
 						this._warnThrottled("sock-close", "Modbus socket closed by peer");
 					}
 					this.connected = false;
@@ -83,7 +90,16 @@ class Sun2000Modbus {
 	async _ensureConnected() {
 		if (this.connected) return;
 		if (!this.opts) throw new Error("Modbus not configured");
-		await new Promise((r) => setTimeout(r, RECONNECT_DELAY_MS));
+		// If the SDongle just RST'd us, give it time to clear the rate-limiter
+		// before reconnecting. Reconnecting too fast is what causes the cycle.
+		const sincePeerClose = Date.now() - this._lastPeerCloseAt;
+		if (this._lastPeerCloseAt && sincePeerClose < PEER_CLOSE_COOLDOWN_MS) {
+			const wait = PEER_CLOSE_COOLDOWN_MS - sincePeerClose;
+			this._warnThrottled("peer-cooldown", `Cooling down ${Math.round(wait / 1000)} s after dongle peer-close before reconnect`);
+			await new Promise((r) => setTimeout(r, wait));
+		} else {
+			await new Promise((r) => setTimeout(r, RECONNECT_DELAY_MS));
+		}
 		await this.connect(this.opts);
 	}
 
