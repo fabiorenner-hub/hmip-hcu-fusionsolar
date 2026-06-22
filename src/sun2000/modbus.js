@@ -108,16 +108,50 @@ class Sun2000Modbus {
 		}
 	}
 
+	// Computed cooldown after a peer-close: escalates with each consecutive
+	// close (BASE, 2×BASE, 4×BASE …) capped at MAX. The first close uses BASE.
+	_peerCloseCooldownMs() {
+		const exp = Math.max(0, this._consecutivePeerCloses - 1);
+		return Math.min(PEER_CLOSE_COOLDOWN_MAX_MS, PEER_CLOSE_COOLDOWN_BASE_MS * 2 ** exp);
+	}
+
+	// Called after any successful read: the dongle is healthy again, so clear
+	// the peer-close escalation and any active lockdown.
+	_onReadSuccess() {
+		if (this._lastPeerCloseAt || this._consecutivePeerCloses || this._lockdownUntil) {
+			this._lastPeerCloseAt = 0;
+			this._consecutivePeerCloses = 0;
+			this._lockdownUntil = 0;
+		}
+	}
+
 	async _ensureConnected() {
 		if (this.connected) return;
 		if (!this.opts) throw new Error("Modbus not configured");
-		// If the SDongle just RST'd us, give it time to clear the rate-limiter
+		const now = Date.now();
+
+		// Hard lockdown after a string of peer-closes: do not even attempt to
+		// connect — connecting only resets the dongle's rate-limiter timer.
+		// We throw instead of sleeping so we don't block the request queue for
+		// minutes; the poller's own backoff retries us later and we stay in
+		// lockdown until the window elapses.
+		if (now < this._lockdownUntil) {
+			const wait = Math.ceil((this._lockdownUntil - now) / 1000);
+			this._warnThrottled("lockdown", `Dongle lockdown active — no connect attempts for ${wait} s`);
+			throw new Error(`Modbus in lockdown (${wait} s remaining)`);
+		}
+
+		// If the SDongle just RST'd us, wait out the (escalating) cooldown
 		// before reconnecting. Reconnecting too fast is what causes the cycle.
-		const sincePeerClose = Date.now() - this._lastPeerCloseAt;
-		if (this._lastPeerCloseAt && sincePeerClose < PEER_CLOSE_COOLDOWN_MS) {
-			const wait = PEER_CLOSE_COOLDOWN_MS - sincePeerClose;
-			this._warnThrottled("peer-cooldown", `Cooling down ${Math.round(wait / 1000)} s after dongle peer-close before reconnect`);
-			await new Promise((r) => setTimeout(r, wait));
+		// Same throw-don't-block reasoning as the lockdown above.
+		if (this._lastPeerCloseAt) {
+			const cooldown = this._peerCloseCooldownMs();
+			const sincePeerClose = now - this._lastPeerCloseAt;
+			if (sincePeerClose < cooldown) {
+				const wait = Math.ceil((cooldown - sincePeerClose) / 1000);
+				this._warnThrottled("peer-cooldown", `Cooling down ${wait} s after dongle peer-close before reconnect`);
+				throw new Error(`Modbus cooling down (${wait} s remaining)`);
+			}
 		} else {
 			await new Promise((r) => setTimeout(r, RECONNECT_DELAY_MS));
 		}
@@ -165,24 +199,13 @@ class Sun2000Modbus {
 				const result = await this.client.readHoldingRegisters(reg.addr, reg.length);
 				await new Promise((r) => setTimeout(r, READ_DELAY_MS));
 				this.stats.readsOk += 1;
+				this._onReadSuccess();
 				return decode(reg, result.data);
 			} catch (e) {
 				this._classifyAndHandle(e, `${name}@${reg.addr}`);
 				throw e;
 			}
 		});
-	}
-
-	async readMany(names) {
-		const out = {};
-		for (const name of names) {
-			try {
-				out[name] = await this.readRegister(name);
-			} catch {
-				out[name] = null;
-			}
-		}
-		return out;
 	}
 
 	async readRaw(addr, length) {
@@ -193,6 +216,7 @@ class Sun2000Modbus {
 				const r = await this.client.readHoldingRegisters(addr, length);
 				await new Promise((r2) => setTimeout(r2, READ_DELAY_MS));
 				this.stats.readsOk += 1;
+				this._onReadSuccess();
 				return r.data;
 			} catch (e) {
 				this._classifyAndHandle(e, `raw@${addr}`);

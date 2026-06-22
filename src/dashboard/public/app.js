@@ -655,7 +655,7 @@ $("saveConfig").addEventListener("click", async () => {
 });
 
 document.getElementById("btnClearSn")?.addEventListener("click", async () => {
-	if (!confirm("Persistierte Seriennummer löschen?\n\nBeim nächsten erfolgreichen Modbus-Read wird eine neue gesetzt. HmIP-Geräte werden mit neuen IDs angemeldet — alte können in der HmIP-App als „nicht erreichbar" auftauchen und müssen dort entfernt werden.")) return;
+	if (!confirm("Persistierte Seriennummer löschen?\n\nBeim nächsten erfolgreichen Modbus-Read wird eine neue gesetzt. HmIP-Geräte werden mit neuen IDs angemeldet — alte können in der HmIP-App als „nicht erreichbar\" auftauchen und müssen dort entfernt werden.")) return;
 	const btn = document.getElementById("btnClearSn");
 	btn.disabled = true;
 	try {

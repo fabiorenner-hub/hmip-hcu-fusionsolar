@@ -1,6 +1,6 @@
 {
   "name": "hmip-plugin-fusionsolar",
-  "version": "0.3.8",
+  "version": "0.3.10",
   "private": true,
   "description": "Homematic IP HCU plugin to read and control a Huawei Sun2000 PV system locally via Modbus TCP, with optional FusionSolar cloud fallback.",
   "license": "Apache-2.0",
@@ -12,7 +12,7 @@
     "start": "node src/index.js",
     "build": "bash scripts/build.sh",
     "build:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1",
-    "lint": "node --check src/index.js && node --check src/hcu/client.js && node --check src/sun2000/poller.js && node --check src/dashboard/server.js"
+    "lint": "node --check src/index.js && node --check src/hcu/client.js && node --check src/hcu/messages.js && node --check src/sun2000/poller.js && node --check src/sun2000/modbus.js && node --check src/sun2000/registers.js && node --check src/devices/mapper.js && node --check src/dashboard/server.js && node --check src/history.js && node --check src/logger.js && node --check src/hcuLog.js && node --check src/config.js && node --check src/dashboard/public/app.js && node --check src/dashboard/public/chart.js"
   },
   "dependencies": {
     "express": "4.21.2",

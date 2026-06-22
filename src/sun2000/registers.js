@@ -106,9 +106,13 @@ function decodeString(words, length) {
 	for (let i = 0; i < length; i += 1) {
 		buf.writeUInt16BE(words[i] & 0xffff, i * 2);
 	}
-	// trim NULs and trailing whitespace
-	let end = buf.length;
-	while (end > 0 && (buf[end - 1] === 0 || buf[end - 1] === 0x20)) end -= 1;
+	// Cut at the first NUL: some Huawei string registers pack trailing data
+	// after a NUL separator (e.g. model name + part number in 30000). Keeping
+	// the embedded NUL produces "SUN2000-8KTL-M1\u0000…" which is ugly in the
+	// dashboard and risky in the strict HCU JSON. Then trim trailing spaces.
+	let end = buf.indexOf(0);
+	if (end === -1) end = buf.length;
+	while (end > 0 && buf[end - 1] === 0x20) end -= 1;
 	return buf.slice(0, end).toString("ascii");
 }
 

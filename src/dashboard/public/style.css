@@ -76,6 +76,7 @@ header {
 /* Tabs */
 .tabs {
 	display: flex;
+	flex-wrap: wrap;
 	gap: 0;
 	background: var(--panel);
 	border-bottom: 1px solid var(--border);

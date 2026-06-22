@@ -49,6 +49,11 @@ const hcu = new HcuClient({
 
 const poller = new Poller(config.get());
 let lastDevices = [];
+// Last STATUS_EVENT feature payload we sent per deviceId. Used to suppress
+// re-emitting an unchanged state every poll: the HCU/app keep the last value,
+// so re-asserting it is pure noise (and, for controllable devices like the
+// force-charge SWITCH, it's the anti-pattern that can confuse the app).
+const lastSentFeatures = new Map();
 
 function recomputeReadiness() {
 	if (!config.isReady()) return "CONFIG_REQUIRED";
@@ -57,7 +62,7 @@ function recomputeReadiness() {
 	return "READY";
 }
 
-function publishStatusEvents() {
+function publishStatusEvents({ force = false } = {}) {
 	if (!hcu.connected) return;
 	const snap = poller.getSnapshot();
 	const devices = buildDevices(config.get(), snap);
@@ -77,9 +82,13 @@ function publishStatusEvents() {
 
 	const included = hcu.includedDeviceIds;
 	for (const d of devices) {
-		if (!included.size || included.has(d.deviceId)) {
-			hcu.send(M.statusEvent(pluginId, d.deviceId, d.features));
-		}
+		if (included.size && !included.has(d.deviceId)) continue;
+		// Skip devices whose state is byte-for-byte unchanged since the last
+		// emit, unless we're forced to (inclusion / post-control confirmation).
+		const key = JSON.stringify(d.features);
+		if (!force && lastSentFeatures.get(d.deviceId) === key) continue;
+		lastSentFeatures.set(d.deviceId, key);
+		hcu.send(M.statusEvent(pluginId, d.deviceId, d.features));
 	}
 }
 
@@ -111,7 +120,9 @@ hcu.on("controlRequest", async (msg) => {
 	const result = await handleControl(poller.getModbus(), config.get(), deviceId, features || []);
 	hcu.send(M.controlResponse(pluginId, deviceId, result.success, result.error, msg.id));
 	// Re-publish state shortly after the write so HmIP reflects reality.
-	setTimeout(publishStatusEvents, 1500);
+	// Force it: the commanded value may already match our cached state, but
+	// the HCU still expects a confirming event after a control round-trip.
+	setTimeout(() => publishStatusEvents({ force: true }), 1500);
 });
 
 hcu.on("configTemplateRequest", (msg) => {
@@ -148,7 +159,7 @@ hcu.on("configUpdateRequest", async (msg) => {
 	}
 });
 
-hcu.on("inclusion", () => publishStatusEvents());
+hcu.on("inclusion", () => publishStatusEvents({ force: true }));
 
 // Wire poller events ───────────────────────────────────────────
 poller.on("snapshot", (snap) => {

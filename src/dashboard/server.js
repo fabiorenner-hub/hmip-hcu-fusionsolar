@@ -94,6 +94,12 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 		res.json({ window: sec, samples: history.range(sec), tracked: history.TRACK });
 	});
 
+	// Long-term tiers: hourly buckets (≤ 96 h) and condensed daily summaries
+	// (≤ 30 days). Cheap to serve — these are already aggregated.
+	app.get("/api/history/aggregate", (_req, res) => {
+		res.json({ ...history.aggregates(), tracked: history.TRACK });
+	});
+
 	// ── Register catalog & manipulation ────────────────────────────
 	app.get("/api/registers", (_req, res) => {
 		const meta = {};

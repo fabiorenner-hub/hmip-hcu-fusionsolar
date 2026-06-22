@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.3.10
+- **Critical: debug dashboard was completely broken.** A stray ASCII double
+  quote inside a German `confirm()` string (the "reset device identity"
+  button introduced in 0.3.7) terminated the string early, causing a syntax
+  error in `app.js`. The whole script aborted before `buildTabs()`/`render()`
+  ran, so the dashboard showed only the base layout — no tabs, no data, and a
+  permanently red status dot (the CSS default, not a real status). Fixed by
+  escaping the quote. `app.js` and `chart.js` are now part of `npm run lint`
+  (`node --check`), which would have caught this.
+- **Model string NUL**: `decodeString` now cuts at the first NUL byte, so the
+  inverter model reads as `SUN2000-8KTL-M1` instead of
+  `SUN2000-8KTL-M1\u000001074314-006`. The clean value is what gets sent to
+  the HCU as `modelType` and shown on the dashboard.
+- **Tab bar**: wraps onto multiple rows on narrow screens instead of scrolling
+  the last tabs (Logs, Diagnose) off the edge with no visible scrollbar.
+
+## 0.3.9
+- **Modbus reconnect protection fixed (real bug)**: the escalating cooldown
+  after a `socket closed by peer` and the 10-minute lockdown were dead code —
+  they referenced an undefined constant (`PEER_CLOSE_COOLDOWN_MS`) and the
+  lockdown gate was never read. Under `"use strict"` this threw on the first
+  reconnect after a peer-close, so the SDongle's rate-limiter was never
+  actually respected. Now the cooldown escalates (30s → 60s → 120s …, capped
+  at 5 min), the lockdown is enforced (no connect attempts for 10 min after
+  repeated peer-closes), and both reset on the first successful read.
+- **STATUS_EVENT only on real change**: device state is no longer re-sent to
+  the HCU every poll when nothing changed. Cuts HCU traffic during flat
+  periods (night/idle) and stops re-asserting controllable devices (the
+  force-charge switch), which is the documented anti-pattern. Inclusion and
+  post-control updates still force an emit.
+- **Tiered, bounded data retention**: history keeps full 10s resolution for
+  6h, hourly aggregates (avg/min/max + integrated energy) up to 96h, then one
+  condensed summary per day for ~30 days. Logs and the HCU message log keep
+  everything for 96h and are reduced to the essentials (warnings/errors and
+  non-routine messages) beyond that. Memory stays bounded regardless of
+  uptime. New `GET /api/history/aggregate` exposes the long-term tiers.
+- **Cleanup**: removed dead `readMany` code; `npm run lint` now covers all
+  Node-side modules (including `modbus.js`, which was previously unchecked).
+
 ## 0.3.8
 - **Dashboard no-cache**: the dashboard HTML/JS/CSS were served with a
   1-hour cache header. After a plugin update the browser kept serving the
