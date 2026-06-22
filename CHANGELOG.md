@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1
+- **Admin login was unreachable**: when an admin password was set, there was
+  no visible field to enter it — unlocking relied solely on the header lock,
+  which only prompted when the client's cached `adminProtected` flag happened
+  to be set. Added a dedicated **Admin-Modus** card at the top of the Config
+  tab (password field + Anmelden/Abmelden, with a live status line). Also made
+  `ensureAdmin()` robust: a `403` from the server now always prompts for the
+  password and retries, even if the cached state was stale.
+
 ## 0.4.0
 Security and UI overhaul.
 

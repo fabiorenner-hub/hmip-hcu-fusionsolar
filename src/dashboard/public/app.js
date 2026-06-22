@@ -132,6 +132,20 @@ function applyAccessUI() {
 		btn.classList.toggle("active", accessState.adminAuthenticated);
 	}
 	document.body.classList.toggle("admin", accessState.adminAuthenticated);
+
+	// Admin card in the Config tab (visible login surface).
+	const status = $("adminStatus");
+	const loginRow = $("adminLoginRow");
+	const logoutRow = $("adminLogoutRow");
+	if (status) {
+		status.textContent = accessState.adminAuthenticated
+			? "Aktiv – Schreibzugriff freigeschaltet."
+			: accessState.adminProtected
+			? "Gesperrt. Passwort eingeben, um Schreibzugriff freizuschalten."
+			: "Gesperrt. Kein Passwort gesetzt – mit „Anmelden\" aktivieren (Schutz nur gegen versehentliche Änderungen). Für echten Schutz unten ein Admin-Passwort setzen.";
+	}
+	if (loginRow) loginRow.style.display = accessState.adminAuthenticated ? "none" : "flex";
+	if (logoutRow) logoutRow.style.display = accessState.adminAuthenticated ? "flex" : "none";
 }
 
 async function refreshAccess() {
@@ -150,37 +164,58 @@ async function refreshAccess() {
 	}
 }
 
-// Ensure an admin session before a write. Prompts for the password when one
-// is configured; otherwise activates the soft (no-password) admin mode.
-async function ensureAdmin() {
-	if (accessState.adminAuthenticated) return true;
-	let password = "";
-	if (accessState.adminProtected) {
-		password = prompt("Admin-Passwort:");
-		if (password === null) return false;
-	}
+// Attempt a login with the given password. Returns {ok} or {ok:false,status}.
+async function adminLogin(password) {
 	try {
 		const r = await fetch("/api/admin/login", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ password }),
+			body: JSON.stringify({ password: password || "" }),
 		});
-		if (!r.ok) {
-			const e = await r.json().catch(() => ({}));
-			alert("Login fehlgeschlagen: " + (e.error || r.status));
-			return false;
+		if (r.ok) {
+			const d = await r.json();
+			adminToken = d.token;
+			sessionStorage.setItem("adminToken", adminToken);
+			accessState.adminAuthenticated = true;
+			accessState.adminProtected = !!d.protected;
+			applyAccessUI();
+			return { ok: true };
 		}
-		const d = await r.json();
-		adminToken = d.token;
-		sessionStorage.setItem("adminToken", adminToken);
-		accessState.adminAuthenticated = true;
-		accessState.adminProtected = !!d.protected;
+		const e = await r.json().catch(() => ({}));
+		// Server told us a password is required → reflect that in the UI.
+		if (r.status === 403) accessState.adminProtected = true;
 		applyAccessUI();
-		return true;
+		return { ok: false, status: r.status, error: e.error };
 	} catch (e) {
-		alert("Login-Fehler: " + e.message);
+		return { ok: false, error: e.message };
+	}
+}
+
+// Ensure an admin session before a write. First tries a password-less login
+// (works when no password is set); if the server rejects it, prompts for the
+// password and retries. This is robust even if the cached adminProtected flag
+// is stale, so there is always a way to enter the password.
+async function ensureAdmin() {
+	if (accessState.adminAuthenticated) return true;
+	let res = await adminLogin("");
+	let tries = 0;
+	while (!res.ok && res.status === 403 && tries < 3) {
+		tries += 1;
+		const pw = prompt("Admin-Passwort:");
+		if (pw === null) return false;
+		res = await adminLogin(pw);
+		if (!res.ok && res.status === 403) alert("Falsches Passwort.");
+	}
+	if (!res.ok) {
+		if (res.status !== 403) alert("Login fehlgeschlagen: " + (res.error || res.status || "unbekannt"));
 		return false;
 	}
+	return true;
+}
+
+async function adminLogout() {
+	try { await fetch("/api/admin/logout", { method: "POST", headers: authHeaders() }); } catch { /* ignore */ }
+	setAdmin(false);
 }
 
 // ── Layout ─────────────────────────────────────────────────────
@@ -893,6 +928,7 @@ $("saveConfig").addEventListener("click", async () => {
 	try {
 		await writeJSON("/api/config", data);
 		$("saveStatus").textContent = `${t("saved")} ${new Date().toLocaleTimeString()}`;
+		refreshAccess();
 	} catch (e) {
 		$("saveStatus").textContent = "Fehler: " + e.message;
 	}
@@ -1022,13 +1058,20 @@ function escape(s) {
 // ── Boot ──────────────────────────────────────────────────────
 document.body.classList.add("loading");
 $("adminToggle")?.addEventListener("click", async () => {
-	if (accessState.adminAuthenticated) {
-		try { await fetch("/api/admin/logout", { method: "POST", headers: authHeaders() }); } catch {}
-		setAdmin(false);
+	if (accessState.adminAuthenticated) await adminLogout();
+	else await ensureAdmin();
+});
+$("adminLoginBtn")?.addEventListener("click", async () => {
+	const pwEl = $("adminPw");
+	const res = await adminLogin(pwEl ? pwEl.value : "");
+	if (res.ok) {
+		if (pwEl) pwEl.value = "";
 	} else {
-		await ensureAdmin();
+		alert(res.status === 403 ? "Falsches Passwort." : "Login fehlgeschlagen: " + (res.error || res.status || "unbekannt"));
 	}
 });
+$("adminPw")?.addEventListener("keydown", (e) => { if (e.key === "Enter") $("adminLoginBtn")?.click(); });
+$("adminLogoutBtn")?.addEventListener("click", () => adminLogout());
 buildTabs();
 openStream();
 refreshAccess();

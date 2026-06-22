@@ -390,6 +390,17 @@
 
 			<!-- ── Konfig ─────────────────────────────────────────── -->
 			<section id="tab-config" class="tab">
+				<div class="card" id="adminCard">
+					<h3>Admin-Modus</h3>
+					<p class="muted" id="adminStatus">…</p>
+					<div class="row" id="adminLoginRow" style="display:none">
+						<input type="password" id="adminPw" placeholder="Admin-Passwort" autocomplete="current-password" />
+						<button id="adminLoginBtn">Anmelden</button>
+					</div>
+					<div class="row" id="adminLogoutRow" style="display:none">
+						<button id="adminLogoutBtn" class="ghost">Abmelden</button>
+					</div>
+				</div>
 				<p class="muted">
 					Wird in <code>/data/config.json</code> auf der HCU gespeichert.
 					Änderungen starten den Modbus-Poller neu.
