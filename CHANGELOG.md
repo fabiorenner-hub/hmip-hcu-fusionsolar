@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.8
+- **Dashboard no-cache**: the dashboard HTML/JS/CSS were served with a
+  1-hour cache header. After a plugin update the browser kept serving the
+  old bundle, which called the newer backend API and showed only empty
+  values (and a stale "v0.2" footer). Assets are now served with
+  `Cache-Control: no-cache, must-revalidate` so a normal reload always
+  picks up the running version.
+- **Live version in footer**: new `GET /api/version` endpoint; the
+  dashboard footer now shows the actually running plugin version instead
+  of a hard-coded string. Makes "am I on the new build?" obvious.
+- **Quiet nights**: Modbus exception 4 (Slave device failure) and
+  exception 2 (Illegal data address) on PV/AC registers are the inverter's
+  normal response while shutting down for the night. They are now treated
+  like an "inverter asleep" timeout (throttled info) instead of a hard
+  error, so the log stays clean overnight.
+
 ## 0.3.7
 - Dashboard → Konfig: zwei neue Wartungs-Knöpfe.
   - **„Geräte-Identität zurücksetzen"** löscht nur die persistierte

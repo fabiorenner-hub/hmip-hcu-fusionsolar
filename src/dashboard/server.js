@@ -7,10 +7,31 @@ const history = require("../history");
 const hcuLog = require("../hcuLog");
 const { REG } = require("../sun2000/registers");
 
+let PKG_VERSION = "0.0.0";
+try {
+	PKG_VERSION = require("../../package.json").version || PKG_VERSION;
+} catch {
+	/* ignore */
+}
+
 function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStatus, getDevices, scheduleReset, clearPersistedSn }) {
 	const app = express();
 	app.use(express.json({ limit: "256kb" }));
-	app.use(express.static(path.join(__dirname, "public"), { etag: true, maxAge: "1h" }));
+	// No caching for the dashboard assets. The plugin updates often and the
+	// HTML/JS/CSS must always match the running backend — a stale cached
+	// bundle calling a newer API (or vice versa) shows empty values with no
+	// obvious cause. ETag stays on so unchanged files still return 304.
+	app.use(
+		express.static(path.join(__dirname, "public"), {
+			etag: true,
+			lastModified: true,
+			maxAge: 0,
+			cacheControl: true,
+			setHeaders: (res) => {
+				res.setHeader("Cache-Control", "no-cache, must-revalidate");
+			},
+		})
+	);
 
 	// ── Snapshot / overview ────────────────────────────────────────
 	app.get("/api/snapshot", (_req, res) => {
@@ -330,6 +351,10 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 		sock.once("timeout", () => done({ ok: false, error: "timeout" }));
 		sock.once("error", (e) => done({ ok: false, error: e.message }));
 		sock.connect(cfg.inverterPort || 502, cfg.inverterHost);
+	});
+
+	app.get("/api/version", (_req, res) => {
+		res.json({ version: PKG_VERSION });
 	});
 
 	app.get("/healthz", (_req, res) => {

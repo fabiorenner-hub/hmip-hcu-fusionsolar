@@ -778,3 +778,7 @@ function escape(s) {
 buildTabs();
 openStream();
 fetch("/api/snapshot").then((r) => r.json()).then((d) => { state = d; render(); });
+fetch("/api/version").then((r) => r.json()).then((d) => {
+	const el = document.getElementById("footVersion");
+	if (el && d.version) el.textContent = `hmip-fusionsolar · lokal · v${d.version}`;
+}).catch(() => {});
