@@ -24,6 +24,16 @@
 			};
 			this._resize();
 			window.addEventListener("resize", () => this._resize());
+			this._hoverX = null;
+			canvas.addEventListener("mousemove", (e) => {
+				const rect = canvas.getBoundingClientRect();
+				this._hoverX = e.clientX - rect.left;
+				this._draw();
+			});
+			canvas.addEventListener("mouseleave", () => {
+				this._hoverX = null;
+				this._draw();
+			});
 		}
 
 		_resize() {
@@ -167,7 +177,74 @@
 					ctx.globalAlpha = 1;
 				}
 			}
+
+			// Hover crosshair + value tooltip
+			if (this._hoverX != null && this._hoverX >= padL && this._hoverX <= w - padR) {
+				const tHover = tMin + ((this._hoverX - padL) / plotW) * tSpan;
+				let near = this.samples[0];
+				let best = Infinity;
+				for (const s of this.samples) {
+					const d = Math.abs(s.t - tHover);
+					if (d < best) { best = d; near = s; }
+				}
+				const x = xAt(near.t);
+				ctx.strokeStyle = opts.textColor;
+				ctx.globalAlpha = 0.5;
+				ctx.beginPath();
+				ctx.moveTo(x, padT);
+				ctx.lineTo(x, padT + plotH);
+				ctx.stroke();
+				ctx.globalAlpha = 1;
+
+				const labels = [];
+				for (const sr of opts.series) {
+					const val = near[sr.key];
+					if (typeof val !== "number" || Number.isNaN(val)) continue;
+					const y = yAt(val);
+					ctx.fillStyle = sr.color;
+					ctx.beginPath();
+					ctx.arc(x, y, 3, 0, Math.PI * 2);
+					ctx.fill();
+					labels.push({ color: sr.color, text: `${sr.label}: ${opts.yFormat(val)}` });
+				}
+
+				ctx.font = "11px ui-monospace, monospace";
+				const lines = [formatTime(near.t)].concat(labels.map((l) => l.text));
+				const bw = Math.max.apply(null, lines.map((l) => ctx.measureText(l).width)) + 16;
+				const bh = lines.length * 14 + 8;
+				let bx = x + 10;
+				if (bx + bw > w - padR) bx = x - bw - 10;
+				if (bx < padL) bx = padL;
+				const by = padT + 4;
+				ctx.globalAlpha = 0.96;
+				ctx.fillStyle = getCss("--panel");
+				ctx.strokeStyle = getCss("--border-strong");
+				roundRect(ctx, bx, by, bw, bh, 6);
+				ctx.fill();
+				ctx.stroke();
+				ctx.globalAlpha = 1;
+				ctx.textAlign = "start";
+				ctx.textBaseline = "top";
+				ctx.fillStyle = opts.textColor;
+				ctx.fillText(lines[0], bx + 8, by + 6);
+				for (let i = 0; i < labels.length; i += 1) {
+					ctx.fillStyle = labels[i].color;
+					ctx.fillText(labels[i].text, bx + 8, by + 6 + (i + 1) * 14);
+				}
+				ctx.textBaseline = "middle";
+				ctx.textAlign = "start";
+			}
 		}
+	}
+
+	function roundRect(ctx, x, y, w, h, r) {
+		ctx.beginPath();
+		ctx.moveTo(x + r, y);
+		ctx.arcTo(x + w, y, x + w, y + h, r);
+		ctx.arcTo(x + w, y + h, x, y + h, r);
+		ctx.arcTo(x, y + h, x, y, r);
+		ctx.arcTo(x, y, x + w, y, r);
+		ctx.closePath();
 	}
 
 	function formatTime(ms) {

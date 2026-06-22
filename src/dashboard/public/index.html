@@ -4,6 +4,7 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width,initial-scale=1" />
 		<title>Sun2000 · HmIP Plugin</title>
+		<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='5' fill='%234fbfa8'/%3E%3Cg stroke='%234fbfa8' stroke-width='2' stroke-linecap='round'%3E%3Cline x1='12' y1='1' x2='12' y2='4'/%3E%3Cline x1='12' y1='20' x2='12' y2='23'/%3E%3Cline x1='1' y1='12' x2='4' y2='12'/%3E%3Cline x1='20' y1='12' x2='23' y2='12'/%3E%3C/g%3E%3C/svg%3E" />
 		<link rel="stylesheet" href="style.css" />
 	</head>
 	<body>
@@ -25,11 +26,12 @@
 				<h1>Sun2000 · HmIP</h1>
 			</div>
 			<div class="status">
-				<span id="connDot" class="dot"></span>
-				<span id="connText">…</span>
+				<span id="connDot" class="dot" role="status" aria-label="Verbindungsstatus"></span>
+				<span id="connText" aria-live="polite">…</span>
 				<span id="lastUpdate" class="muted"></span>
-				<button id="themeToggle" class="ghost icon" title="Theme">◐</button>
-				<select id="langSelect" class="ghost" title="Sprache">
+				<button id="adminToggle" class="ghost icon" title="Admin" aria-label="Admin-Modus">🔒</button>
+				<button id="themeToggle" class="ghost icon" title="Theme" aria-label="Hell/Dunkel umschalten">◐</button>
+				<select id="langSelect" class="ghost" title="Sprache" aria-label="Sprache">
 					<option value="de">DE</option>
 					<option value="en">EN</option>
 				</select>
@@ -50,16 +52,19 @@
 						<div class="big" id="kpiPv">– W</div>
 						<div class="muted" id="kpiPvDay">heute – kWh · gesamt – kWh</div>
 						<div class="bar"><div id="kpiPvBar"></div></div>
+						<canvas class="spark" id="sparkPv" height="34" aria-hidden="true"></canvas>
 					</div>
 					<div class="card kpi" data-kpi="ac">
 						<h3 data-i18n="overview.ac">Wechselrichter AC</h3>
 						<div class="big" id="kpiAc">– W</div>
 						<div class="muted" id="kpiInv">– · –</div>
+						<canvas class="spark" id="sparkAc" height="34" aria-hidden="true"></canvas>
 					</div>
 					<div class="card kpi" data-kpi="grid">
 						<h3 data-i18n="overview.grid">Netz</h3>
 						<div class="big" id="kpiGrid">– W</div>
 						<div class="muted" id="kpiGridEnergy">Bezug – kWh · Einspeisung – kWh</div>
+						<canvas class="spark" id="sparkGrid" height="34" aria-hidden="true"></canvas>
 					</div>
 					<div class="card kpi" data-kpi="battery">
 						<h3 data-i18n="overview.battery">Speicher</h3>
@@ -71,11 +76,29 @@
 						<h3 data-i18n="overview.house">Hausverbrauch</h3>
 						<div class="big" id="kpiHouse">– W</div>
 						<div class="muted" id="kpiHouseSelf">Eigenverbrauch – %</div>
+						<canvas class="spark" id="sparkHouse" height="34" aria-hidden="true"></canvas>
 					</div>
 					<div class="card kpi" data-kpi="hcu">
 						<h3 data-i18n="overview.hcu">HCU-Verbindung</h3>
 						<div class="big" id="kpiHcu">…</div>
 						<div class="muted" id="kpiHcuDetails">–</div>
+					</div>
+				</div>
+				<div class="grid two">
+					<div class="card">
+						<h3>Energie heute</h3>
+						<dl id="energyToday" class="dl"></dl>
+					</div>
+					<div class="card">
+						<h3>Autarkie / Eigenverbrauch</h3>
+						<div class="bigGauge">
+							<svg viewBox="0 0 200 110" id="autarkyGauge">
+								<path d="M20 100 A 80 80 0 0 1 180 100" fill="none" stroke="var(--border)" stroke-width="14" />
+								<path id="autarkyArc" d="M20 100 A 80 80 0 0 1 180 100" fill="none" stroke="var(--good)" stroke-width="14" stroke-dasharray="251" stroke-dashoffset="251" stroke-linecap="round" />
+								<text x="100" y="82" text-anchor="middle" font-size="30" id="autarkyText" fill="currentColor">–</text>
+								<text x="100" y="100" text-anchor="middle" font-size="10" fill="var(--muted)">Eigenverbrauch</text>
+							</svg>
+						</div>
 					</div>
 				</div>
 				<div class="card">
@@ -113,6 +136,23 @@
 						<h3>Wechselrichter-Temperatur</h3>
 						<canvas id="chartTemp" class="chart" height="180"></canvas>
 					</div>
+				</div>
+			</section>
+
+			<!-- ── Verlauf / Trend ─────────────────────────────────── -->
+			<section id="tab-trend" class="tab">
+				<div class="card">
+					<h3>Letzte 24 Stunden (PV / Bezug / Einspeisung, kWh)</h3>
+					<div id="trendHourly" class="trend"></div>
+					<div class="legend">
+						<span><i style="background:#4fbfa8"></i>PV</span>
+						<span><i style="background:#ef4444"></i>Bezug</span>
+						<span><i style="background:#34d399"></i>Einspeisung</span>
+					</div>
+				</div>
+				<div class="card">
+					<h3>Tage (Zusammenfassung nach 96 h)</h3>
+					<div id="trendDaily" class="trend"></div>
 				</div>
 			</section>
 

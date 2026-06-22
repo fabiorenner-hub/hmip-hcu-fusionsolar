@@ -179,7 +179,12 @@ const dashboard = (() => {
 			getModbus: () => poller.getModbus(),
 			getConfig: () => config.get(),
 			saveConfig: async (patch) => {
-				const next = config.save(patch);
+				// Never let the redaction placeholder overwrite a real secret.
+				const clean = { ...patch };
+				for (const k of ["cloudPassword", "adminPassword"]) {
+					if (clean[k] === "•••") delete clean[k];
+				}
+				const next = config.save(clean);
 				const softUpdated = poller.updateConfig(next);
 				if (!softUpdated) {
 					log.info("Modbus connection settings changed via dashboard — restarting poller");

@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.4.0
+Security and UI overhaul.
+
+### Security
+- **LAN-only access**: the dashboard and its API now reject requests from
+  non-private source IPs (`lanOnly`, default on). This reliably blocks access
+  from the internet even if the HCU's port gets forwarded. An optional
+  `allowedSubnets` CIDR allowlist (e.g. `192.168.10.0/24`) narrows it further.
+  `/healthz` stays open for the HCU's own probing. (NAT caveat: behind the
+  HCU's port mapping the source IP may be the bridge gateway, so the practical
+  guarantee is "block non-private", which is the property that matters.)
+- **Admin mode**: every write — battery/charge control, register writes,
+  config changes, resets, slave-id probe — now requires an authenticated admin
+  session. Set `adminPassword` for real protection; when empty, admin mode is
+  a soft guard against accidental writes. Login issues a 2 h token; secrets are
+  redacted in `/api/config`.
+
+### Reliability
+- **Standby instead of red**: when the TCP link is up but the inverter is
+  asleep (night mode), the status pill shows amber "Wechselrichter im Standby"
+  and `/healthz` returns 200 — so the HCU no longer restart-loops overnight.
+- **Block-read fallback**: if one unsupported/de-energised register fails an
+  atomic block read (typical for PV strings at dusk) but the inverter is
+  otherwise responsive, the block is retried register-by-register so the
+  readable fields still come through.
+- **Accurate daily energy** sourced from the inverter's own counters
+  (daily yield, battery daily, meter deltas) rather than integrated power.
+
+### UI / UX
+- Chart **hover tooltips** with crosshair and per-series values.
+- Smart **W/kW** unit formatting.
+- New **Verlauf** tab visualising the long-term hourly/daily aggregates.
+- **Autarky donut**, KPI **sparklines**, "Energie heute" card.
+- Tab bar wraps on narrow screens; **favicon**; live "vor X s" ticker;
+  loading state; keyboard-focus and ARIA tweaks.
+
+### Tooling
+- **ESLint** (flat config) and a **`node:test`** suite (decode/encode,
+  history energy, Modbus reconnect state machine, server access/admin wiring).
+- Backend performance: SSE payload is skipped when no client is connected;
+  self-sufficiency is computed once per snapshot instead of per request.
+
 ## 0.3.10
 - **Critical: debug dashboard was completely broken.** A stray ASCII double
   quote inside a German `confirm()` string (the "reset device identity"

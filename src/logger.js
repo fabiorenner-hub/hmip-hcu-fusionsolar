@@ -30,7 +30,6 @@ function push(level, args) {
 		.join(" ")}`;
 	buffer.push({ t: Date.now(), level, line });
 	prune();
-	// eslint-disable-next-line no-console
 	(console[level] || console.log)(line);
 }
 

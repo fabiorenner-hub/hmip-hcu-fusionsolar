@@ -155,22 +155,27 @@ class Poller extends EventEmitter {
 		let success = false;
 		try {
 			const merged = {};
+			const readBlock = async (b) => {
+				const data = await this.modbus.readBlock(b.start, b.count, b.names);
+				Object.assign(merged, data);
+				return Object.values(data).some((v) => v !== null && v !== undefined);
+			};
+
 			// Always: PV/AC + yields
-			Object.assign(merged, await this.modbus.readBlock(
-				READ_BLOCKS.pvAndAc.start, READ_BLOCKS.pvAndAc.count, READ_BLOCKS.pvAndAc.names
-			));
-			Object.assign(merged, await this.modbus.readBlock(
-				READ_BLOCKS.yields.start, READ_BLOCKS.yields.count, READ_BLOCKS.yields.names
-			));
-			if (cfg.hasMeter) {
-				Object.assign(merged, await this.modbus.readBlock(
-					READ_BLOCKS.meter.start, READ_BLOCKS.meter.count, READ_BLOCKS.meter.names
-				));
-			}
-			if (cfg.hasBattery) {
-				Object.assign(merged, await this.modbus.readBlock(
-					READ_BLOCKS.battery.start, READ_BLOCKS.battery.count, READ_BLOCKS.battery.names
-				));
+			const pvOk = await readBlock(READ_BLOCKS.pvAndAc);
+			const yieldsOk = await readBlock(READ_BLOCKS.yields);
+			let meterOk = false;
+			let batteryOk = false;
+			if (cfg.hasMeter) meterOk = await readBlock(READ_BLOCKS.meter);
+			if (cfg.hasBattery) batteryOk = await readBlock(READ_BLOCKS.battery);
+
+			// Block reads are atomic: one unsupported/de-energised register
+			// (typically the PV strings at dusk) fails the whole pvAndAc block.
+			// If another block proves the inverter is awake, retry pvAndAc
+			// register-by-register so the readable fields (AC power, status,
+			// temperature) still come through instead of the tick going dark.
+			if (!pvOk && (yieldsOk || meterOk || batteryOk)) {
+				Object.assign(merged, await this.modbus.readEach(READ_BLOCKS.pvAndAc.names));
 			}
 
 			// If no model SN was read at startup (e.g. inverter was asleep),

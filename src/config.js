@@ -37,6 +37,21 @@ const DEFAULTS = {
 	// Local dashboard.
 	dashboardPort: 8088,
 	dashboardEnabled: true,
+	// ── Security ──────────────────────────────────────────────────
+	// Restrict the dashboard/API to local networks. When true (default),
+	// requests from non-private source IPs are rejected. Reliably blocks
+	// exposure if the HCU port is forwarded to the internet. See
+	// allowedSubnets for stricter, explicit control.
+	lanOnly: true,
+	// Optional comma-separated CIDR allowlist (e.g. "192.168.10.0/24").
+	// When set, ONLY these ranges (plus loopback) may reach the API. Leave
+	// empty to allow any private/same-subnet client.
+	allowedSubnets: "",
+	// Admin mode: write operations (control, register writes, config
+	// changes) require an authenticated admin session. When a password is
+	// set, login requires it; when empty, admin mode is a soft accidental-
+	// write guard only (set a password for real protection).
+	adminPassword: "",
 };
 
 let current = { ...DEFAULTS };

@@ -5,6 +5,7 @@ const express = require("express");
 const log = require("../logger");
 const history = require("../history");
 const hcuLog = require("../hcuLog");
+const access = require("./access");
 const { REG } = require("../sun2000/registers");
 
 let PKG_VERSION = "0.0.0";
@@ -17,6 +18,29 @@ try {
 function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStatus, getDevices, scheduleReset, clearPersistedSn }) {
 	const app = express();
 	app.use(express.json({ limit: "256kb" }));
+
+	// ── Access control ──────────────────────────────────────────────
+	// Classify every request's source network, then gate. The dashboard is
+	// restricted to local/private networks by default (see config.lanOnly /
+	// allowedSubnets); /healthz stays open for the HCU's health probe.
+	app.use((req, _res, next) => {
+		req.access = access.classify(req, getConfig());
+		next();
+	});
+	app.use((req, res, next) => {
+		const cfg = getConfig();
+		if (!cfg.lanOnly || req.path === "/healthz" || req.access.lan) return next();
+		log.warn(`Blocked non-LAN request from ${req.access.ip || "?"} to ${req.path}`);
+		res.status(403).type("text/plain").send("403 - Dashboard is restricted to the local network.");
+	});
+
+	// Admin gate for mutating endpoints. When config.adminPassword is set,
+	// a valid session token is required; otherwise a session is still needed
+	// (soft guard against accidental writes from the LAN).
+	function requireAdmin(req, res, next) {
+		if (access.isAuthed(req)) return next();
+		res.status(401).json({ error: "Admin-Modus erforderlich", adminProtected: !!getConfig().adminPassword });
+	}
 	// No caching for the dashboard assets. The plugin updates often and the
 	// HTML/JS/CSS must always match the running backend — a stale cached
 	// bundle calling a newer API (or vice versa) shows empty values with no
@@ -33,14 +57,45 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 		})
 	);
 
+	// ── Access / admin session ─────────────────────────────────────
+	app.get("/api/access", (req, res) => {
+		const cfg = getConfig();
+		res.json({
+			lan: req.access.lan,
+			ip: req.access.ip,
+			adminProtected: !!cfg.adminPassword,
+			adminAuthenticated: access.isAuthed(req),
+		});
+	});
+
+	app.post("/api/admin/login", (req, res) => {
+		const cfg = getConfig();
+		const pw = req.body?.password;
+		if (cfg.adminPassword && !access.passwordMatches(pw, cfg.adminPassword)) {
+			return res.status(403).json({ error: "Falsches Passwort" });
+		}
+		const token = access.issueToken();
+		res.json({ token, ttlMs: access.TOKEN_TTL_MS, protected: !!cfg.adminPassword });
+	});
+
+	app.post("/api/admin/logout", (req, res) => {
+		access.revoke(req);
+		res.json({ ok: true });
+	});
+
 	// ── Snapshot / overview ────────────────────────────────────────
 	app.get("/api/snapshot", (_req, res) => {
 		res.json(buildPayload());
 	});
 
 	function buildPayload() {
+		const snap = getSnapshot();
+		const m = getModbus().getStatus ? getModbus().getStatus() : {};
+		const tcp = !!m.connected;
 		return {
-			snapshot: getSnapshot(),
+			// `standby` = link is up but the inverter isn't answering reads
+			// (typically night mode). Lets the UI show amber instead of red.
+			snapshot: { ...snap, tcp, standby: tcp && !snap.connected },
 			devices: getDevices(),
 			hcu: getHcuStatus(),
 			config: redactConfig(getConfig()),
@@ -82,8 +137,10 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 		res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 	}
 
-	// Hook poller updates to SSE.
+	// Hook poller updates to SSE. Skip the work entirely when no client is
+	// connected — no point building and serialising a payload nobody reads.
 	const broadcastTimer = setInterval(() => {
+		if (sseClients.size === 0) return;
 		broadcast("snapshot", buildPayload());
 	}, 2000);
 	broadcastTimer.unref?.();
@@ -125,7 +182,7 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 		}
 	});
 
-	app.post("/api/registers/:name", async (req, res) => {
+	app.post("/api/registers/:name", requireAdmin, async (req, res) => {
 		try {
 			const value = req.body?.value;
 			if (value === undefined) return res.status(400).json({ error: "Missing value" });
@@ -180,7 +237,7 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 		chargeFromGrid: { reg: "chargeFromGridEnable", values: { off: 0, on: 1 } },
 	};
 
-	app.post("/api/control/:action", async (req, res) => {
+	app.post("/api/control/:action", requireAdmin, async (req, res) => {
 		try {
 			const action = req.params.action;
 			const cfg = CONTROL_ACTIONS[action];
@@ -219,7 +276,7 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 		res.json(redactConfig(getConfig()));
 	});
 
-	app.post("/api/config", async (req, res) => {
+	app.post("/api/config", requireAdmin, async (req, res) => {
 		try {
 			const merged = await saveConfig(req.body || {});
 			res.json(redactConfig(merged));
@@ -233,7 +290,7 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 	// down the live process from inside the request — that would race the
 	// HTTP response. The HCU restarts the container automatically when the
 	// node process exits, so we schedule a clean exit a moment after replying.
-	app.post("/api/config/reset", async (req, res) => {
+	app.post("/api/config/reset", requireAdmin, async (req, res) => {
 		const confirm = req.body?.confirm === "RESET";
 		if (!confirm) {
 			return res.status(400).json({
@@ -255,7 +312,7 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 	// Drop only the persisted SN — useful after replacing the inverter or
 	// after wiping HmIP devices and wanting fresh device IDs without
 	// re-entering the rest of the config.
-	app.post("/api/config/clear-sn", async (_req, res) => {
+	app.post("/api/config/clear-sn", requireAdmin, async (_req, res) => {
 		try {
 			const merged = clearPersistedSn();
 			res.json(redactConfig(merged));
@@ -319,7 +376,7 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 
 	// Probe: try a small read against alternative Slave-IDs to find which
 	// one responds. Only runs when Modbus is connected.
-	app.post("/api/probe/slave", async (_req, res) => {
+	app.post("/api/probe/slave", requireAdmin, async (_req, res) => {
 		try {
 			const m = getModbus();
 			const cfg = getConfig();
@@ -365,8 +422,17 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 
 	app.get("/healthz", (_req, res) => {
 		const s = getSnapshot();
-		res.status(s.connected ? 200 : 503).json({
-			connected: s.connected,
+		const m = getModbus().getStatus ? getModbus().getStatus() : {};
+		const tcp = !!m.connected;
+		// Healthy as long as the TCP link to the dongle is up — even if the
+		// inverter is asleep and reads time out (night mode). Only report
+		// unhealthy when the link itself is down, so the HCU does not restart
+		// the container every night.
+		const healthy = tcp || !!s.connected;
+		res.status(healthy ? 200 : 503).json({
+			connected: !!s.connected,
+			tcp,
+			standby: tcp && !s.connected,
 			lastUpdate: s.lastUpdate,
 			lastError: s.lastError,
 		});
@@ -377,7 +443,11 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 }
 
 function redactConfig(c) {
-	return { ...c, cloudPassword: c.cloudPassword ? "•••" : "" };
+	return {
+		...c,
+		cloudPassword: c.cloudPassword ? "•••" : "",
+		adminPassword: c.adminPassword ? "•••" : "",
+	};
 }
 
 module.exports = { buildServer };

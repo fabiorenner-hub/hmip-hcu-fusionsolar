@@ -8,6 +8,7 @@ const I18N = {
 	de: {
 		"tab.overview": "Übersicht",
 		"tab.live": "Live",
+		"tab.trend": "Verlauf",
 		"tab.inverter": "Wechselrichter",
 		"tab.battery": "Speicher",
 		"tab.grid": "Netz",
@@ -31,6 +32,7 @@ const I18N = {
 	en: {
 		"tab.overview": "Overview",
 		"tab.live": "Live",
+		"tab.trend": "Trend",
 		"tab.inverter": "Inverter",
 		"tab.battery": "Battery",
 		"tab.grid": "Grid",
@@ -53,7 +55,7 @@ const I18N = {
 	},
 };
 const TABS = [
-	"overview", "live", "inverter", "battery", "grid",
+	"overview", "live", "trend", "inverter", "battery", "grid",
 	"control", "registers", "hcu", "config", "logs", "diag",
 ];
 let lang = localStorage.getItem("lang") || "de";
@@ -64,7 +66,12 @@ const $ = (id) => document.getElementById(id);
 const t = (key) => I18N[lang][key] || I18N.de[key] || key;
 
 const fmt = {
-	w: (v) => v == null ? "–" : `${Math.round(v).toLocaleString("de-DE")} W`,
+	w: (v) => {
+		if (v == null) return "–";
+		const a = Math.abs(v);
+		if (a >= 1000) return `${(v / 1000).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kW`;
+		return `${Math.round(v).toLocaleString("de-DE")} W`;
+	},
 	kwh: (v) => v == null ? "–" : `${(+v).toFixed(2)} kWh`,
 	pct: (v) => v == null ? "–" : `${(+v).toFixed(1)} %`,
 	v: (v) => v == null ? "–" : `${(+v).toFixed(1)} V`,
@@ -79,6 +86,102 @@ let registerMeta = null;
 let history = null;
 let charts = {};
 let logsRaw = [];
+
+// Admin/access state. The dashboard is LAN-gated server-side; write actions
+// additionally require an admin session (token in sessionStorage).
+let adminToken = sessionStorage.getItem("adminToken") || "";
+let accessState = { lan: true, adminProtected: false, adminAuthenticated: false };
+
+function authHeaders(base) {
+	const h = Object.assign({}, base || {});
+	if (adminToken) h["X-Admin-Token"] = adminToken;
+	return h;
+}
+
+async function writeJSON(url, body) {
+	const r = await fetch(url, {
+		method: "POST",
+		headers: authHeaders({ "Content-Type": "application/json" }),
+		body: JSON.stringify(body || {}),
+	});
+	if (r.status === 401) {
+		setAdmin(false);
+		throw new Error("Admin-Modus erforderlich");
+	}
+	return r.json();
+}
+
+function setAdmin(on) {
+	accessState.adminAuthenticated = on;
+	if (!on) {
+		adminToken = "";
+		sessionStorage.removeItem("adminToken");
+	}
+	applyAccessUI();
+}
+
+function applyAccessUI() {
+	const btn = $("adminToggle");
+	if (btn) {
+		btn.textContent = accessState.adminAuthenticated ? "🔓" : "🔒";
+		btn.title = accessState.adminAuthenticated
+			? "Admin aktiv – klicken zum Abmelden"
+			: accessState.adminProtected
+			? "Admin-Login (Passwort erforderlich)"
+			: "Admin-Modus aktivieren (kein Passwort gesetzt)";
+		btn.classList.toggle("active", accessState.adminAuthenticated);
+	}
+	document.body.classList.toggle("admin", accessState.adminAuthenticated);
+}
+
+async function refreshAccess() {
+	try {
+		const a = await fetch("/api/access", { headers: authHeaders() }).then((r) => r.json());
+		accessState.lan = !!a.lan;
+		accessState.adminProtected = !!a.adminProtected;
+		accessState.adminAuthenticated = !!a.adminAuthenticated;
+		if (!a.adminAuthenticated && adminToken) {
+			adminToken = "";
+			sessionStorage.removeItem("adminToken");
+		}
+		applyAccessUI();
+	} catch {
+		/* ignore */
+	}
+}
+
+// Ensure an admin session before a write. Prompts for the password when one
+// is configured; otherwise activates the soft (no-password) admin mode.
+async function ensureAdmin() {
+	if (accessState.adminAuthenticated) return true;
+	let password = "";
+	if (accessState.adminProtected) {
+		password = prompt("Admin-Passwort:");
+		if (password === null) return false;
+	}
+	try {
+		const r = await fetch("/api/admin/login", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ password }),
+		});
+		if (!r.ok) {
+			const e = await r.json().catch(() => ({}));
+			alert("Login fehlgeschlagen: " + (e.error || r.status));
+			return false;
+		}
+		const d = await r.json();
+		adminToken = d.token;
+		sessionStorage.setItem("adminToken", adminToken);
+		accessState.adminAuthenticated = true;
+		accessState.adminProtected = !!d.protected;
+		applyAccessUI();
+		return true;
+	} catch (e) {
+		alert("Login-Fehler: " + e.message);
+		return false;
+	}
+}
 
 // ── Layout ─────────────────────────────────────────────────────
 function buildTabs() {
@@ -105,6 +208,8 @@ function activateTab(name) {
 	if (name === "registers" && !registerMeta) loadRegisters();
 	if (name === "config" && !$("configForm").children.length) loadConfig();
 	if (name === "live" || name === "battery" || name === "grid") refreshHistory();
+	if (name === "trend") refreshTrend();
+	if (name === "overview") refreshSparklines();
 	if (name === "hcu") refreshHcuMessages();
 	if (name === "diag") refreshDiag();
 }
@@ -141,14 +246,15 @@ function openStream() {
 		}
 	});
 	es.addEventListener("error", () => {
-		setConn(false, "Stream getrennt");
+		setConn("bad", "Stream getrennt");
 	});
 }
 
 // ── Header / status pill ───────────────────────────────────────
-function setConn(ok, text, sub) {
+function setConn(state, text, sub) {
 	const dot = $("connDot");
-	dot.className = "dot " + (ok ? "good" : "bad");
+	// state: "good" | "warn" | "bad"
+	dot.className = "dot " + state;
 	$("connText").textContent = text;
 	if (sub !== undefined) $("lastUpdate").textContent = sub;
 }
@@ -158,10 +264,17 @@ function render() {
 	const s = state.snapshot || {};
 	const v = s.values || {};
 	const stat = state.stats || {};
+	document.body.classList.remove("loading");
 
-	const ok = s.connected;
-	setConn(ok, ok ? `Modbus · ${s.static?.model || "Sun2000"}` : "Modbus getrennt",
-		s.lastUpdate ? `· vor ${fmt.rel(s.lastUpdate)}` : "");
+	// Connection pill: green = reads OK, amber = link up but inverter asleep
+	// (standby/night), red = link down.
+	if (s.connected) {
+		setConn("good", `Modbus · ${s.static?.model || "Sun2000"}`, s.lastUpdate ? `· vor ${fmt.rel(s.lastUpdate)}` : "");
+	} else if (s.standby) {
+		setConn("warn", "Wechselrichter im Standby", s.lastUpdate ? `· vor ${fmt.rel(s.lastUpdate)}` : "");
+	} else {
+		setConn("bad", "Modbus getrennt", s.lastUpdate ? `· vor ${fmt.rel(s.lastUpdate)}` : "");
+	}
 
 	// Overview KPIs
 	$("kpiPv").textContent = fmt.w(v.inputPower);
@@ -192,6 +305,8 @@ function render() {
 	$("kpiHcuDetails").textContent = `${state.hcu?.includedDevices ?? 0} Geräte · ${state.hcu?.pluginId || "–"}`;
 
 	renderPeaks(stat);
+	renderEnergyToday(stat);
+	renderAutarky(stat);
 	renderFlow(v, house);
 	renderInverter(s);
 	renderBattery(s);
@@ -199,9 +314,83 @@ function render() {
 	renderHcuPanel();
 }
 
+// ── Energie heute (from inverter counters) ────────────────────
+function renderEnergyToday(stat) {
+	const e = stat.energyToday || {};
+	dl("energyToday", [
+		["PV-Erzeugung", fmt.kwh(e.pv)],
+		["Netzbezug", fmt.kwh(e.import)],
+		["Einspeisung", fmt.kwh(e.export)],
+		["Speicher geladen", fmt.kwh(e.battCharge)],
+		["Speicher entladen", fmt.kwh(e.battDischarge)],
+	]);
+}
+
+function renderAutarky(stat) {
+	const arc = $("autarkyArc");
+	const txt = $("autarkyText");
+	if (!arc || !txt) return;
+	const pct = stat.selfSufficiency != null ? Math.max(0, Math.min(100, stat.selfSufficiency * 100)) : null;
+	const len = 251;
+	arc.setAttribute("stroke-dashoffset", String(pct == null ? len : len - (len * pct) / 100));
+	txt.textContent = pct == null ? "–" : pct.toFixed(0) + "%";
+}
+
 function clampBar(v, max) {
 	if (!max || !v) return 0;
 	return Math.max(0, Math.min(100, (v / max) * 100));
+}
+
+// ── KPI sparklines (6h history, fail-safe) ────────────────────
+let overviewHistory = null;
+async function refreshSparklines() {
+	try {
+		const r = await fetch("/api/history?seconds=21600").then((x) => x.json());
+		overviewHistory = r.samples || [];
+		drawSpark("sparkPv", "inputPower", "#4fbfa8");
+		drawSpark("sparkAc", "activePower", "#60a5fa");
+		drawSpark("sparkGrid", "meterActivePower", "#a78bfa");
+		drawSpark("sparkHouse", "houseLoad", "#f59e0b");
+	} catch {
+		/* sparklines are decorative — never break the page */
+	}
+}
+
+function drawSpark(id, key, color) {
+	const c = $(id);
+	if (!c || !overviewHistory || overviewHistory.length < 2) return;
+	const dpr = window.devicePixelRatio || 1;
+	const rect = c.getBoundingClientRect();
+	if (!rect.width) return;
+	c.width = rect.width * dpr;
+	c.height = rect.height * dpr;
+	const ctx = c.getContext("2d");
+	ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+	const w = rect.width;
+	const h = rect.height;
+	ctx.clearRect(0, 0, w, h);
+	const data = overviewHistory;
+	let mn = Infinity;
+	let mx = -Infinity;
+	for (const s of data) {
+		const v = s[key];
+		if (typeof v === "number") { if (v < mn) mn = v; if (v > mx) mx = v; }
+	}
+	if (mn === Infinity) return;
+	if (mn === mx) { mn -= 1; mx += 1; }
+	const n = data.length;
+	ctx.beginPath();
+	ctx.strokeStyle = color;
+	ctx.lineWidth = 1.5;
+	let started = false;
+	for (let i = 0; i < n; i += 1) {
+		const v = data[i][key];
+		if (typeof v !== "number" || Number.isNaN(v)) { started = false; continue; }
+		const x = (i / (n - 1)) * w;
+		const y = h - 2 - ((v - mn) / (mx - mn)) * (h - 4);
+		if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+	}
+	ctx.stroke();
 }
 
 // ── Tagesspitzen ──────────────────────────────────────────────
@@ -467,6 +656,52 @@ setInterval(() => {
 	}
 }, 5000);
 
+// ── Verlauf / Trend (long-term aggregates) ─────────────────────
+async function refreshTrend() {
+	let agg;
+	try {
+		agg = await fetch("/api/history/aggregate").then((x) => x.json());
+	} catch (e) {
+		$("trendHourly").innerHTML = `<p class="muted">Fehler: ${escape(e.message)}</p>`;
+		return;
+	}
+	// Last 24 hourly buckets, energy per hour (Wh → kWh).
+	const hourly = (agg.hourly || []).slice(-24);
+	renderBars("trendHourly", hourly.map((b) => ({
+		label: new Date(b.start).toLocaleTimeString("de-DE", { hour: "2-digit" }) + "h",
+		pv: (b.energy?.pvWh || 0) / 1000,
+		imp: (b.energy?.importWh || 0) / 1000,
+		exp: (b.energy?.exportWh || 0) / 1000,
+	})), "Noch keine Stundenwerte – sammelt sich im Lauf des Tages.");
+
+	const daily = (agg.daily || []).slice(-30);
+	renderBars("trendDaily", daily.map((d) => ({
+		label: new Date(d.day).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }),
+		pv: (d.energy?.pvWh || 0) / 1000,
+		imp: (d.energy?.importWh || 0) / 1000,
+		exp: (d.energy?.exportWh || 0) / 1000,
+	})), "Tageszusammenfassungen entstehen nach 96 h Laufzeit.");
+}
+
+// Simple CSS bar list (PV / Bezug / Einspeisung) — no canvas, robust.
+function renderBars(elId, rows, emptyMsg) {
+	const el = $(elId);
+	if (!el) return;
+	if (!rows.length) { el.innerHTML = `<p class="muted">${escape(emptyMsg || "Keine Daten")}</p>`; return; }
+	const max = Math.max(0.001, ...rows.map((r) => Math.max(r.pv, r.imp, r.exp)));
+	el.innerHTML = rows.map((r) => `
+		<div class="trendRow">
+			<span class="trendLabel mono">${escape(r.label)}</span>
+			<span class="trendBars">
+				<i class="tb pv" style="width:${(r.pv / max) * 100}%" title="PV ${r.pv.toFixed(2)} kWh"></i>
+				<i class="tb imp" style="width:${(r.imp / max) * 100}%" title="Bezug ${r.imp.toFixed(2)} kWh"></i>
+				<i class="tb exp" style="width:${(r.exp / max) * 100}%" title="Einspeisung ${r.exp.toFixed(2)} kWh"></i>
+			</span>
+			<span class="trendVal mono">${r.pv.toFixed(1)}</span>
+		</div>
+	`).join("");
+}
+
 // ── Registers tab ─────────────────────────────────────────────
 async function loadRegisters() {
 	registerMeta = await fetch("/api/registers").then((r) => r.json());
@@ -511,11 +746,13 @@ document.querySelector("#regTable tbody").addEventListener("click", async (e) =>
 		const num = Number(v);
 		if (Number.isNaN(num)) return alert("Ungültige Zahl");
 		if (!confirm(`Wirklich ${w} auf ${num} setzen?`)) return;
-		const out = await fetch("/api/registers/" + w, {
-			method: "POST", headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ value: num }),
-		}).then((x) => x.json());
-		alert(out.ok ? "OK" : "Fehler: " + out.error);
+		if (!(await ensureAdmin())) return;
+		try {
+			const out = await writeJSON("/api/registers/" + w, { value: num });
+			alert(out.ok ? "OK" : "Fehler: " + out.error);
+		} catch (e) {
+			alert("Fehler: " + e.message);
+		}
 	}
 });
 $("regReadAll").addEventListener("click", async () => {
@@ -573,13 +810,13 @@ document.querySelectorAll("[data-ctl]").forEach((btn) => {
 		const fromId = btn.dataset.from;
 		const value = btn.dataset.val ?? (fromId ? $(fromId).value : null);
 		if (!confirm(`${action} = ${value}\n\nWirklich an den Wechselrichter senden?`)) return;
+		if (!(await ensureAdmin())) return;
 		btn.disabled = true;
 		try {
-			const r = await fetch("/api/control/" + action, {
-				method: "POST", headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ value }),
-			}).then((x) => x.json());
+			const r = await writeJSON("/api/control/" + action, { value });
 			alert(r.ok ? "OK" : "Fehler: " + (r.error || "unknown"));
+		} catch (e) {
+			alert("Fehler: " + e.message);
 		} finally {
 			btn.disabled = false;
 		}
@@ -624,6 +861,9 @@ async function loadConfig() {
 		["cloudUser", "FusionSolar User", "text"],
 		["cloudPassword", "FusionSolar Passwort", "password"],
 		["cloudSubdomain", "Region", "text"],
+		["adminPassword", "Admin-Passwort (Schreibzugriff)", "password", "leer = ungeschützt, nur LAN-Schutz aktiv"],
+		["lanOnly", "Nur aus lokalem Netz erreichbar", "checkbox"],
+		["allowedSubnets", "Erlaubte Subnetze (CIDR, kommagetrennt)", "text", "leer = alle privaten Netze; z. B. 192.168.10.0/24"],
 	];
 	const f = $("configForm");
 	f.innerHTML = "";
@@ -648,18 +888,23 @@ $("saveConfig").addEventListener("click", async () => {
 		else data[i.name] = i.value;
 	});
 	if (data.cloudPassword === "" || data.cloudPassword === "•••") delete data.cloudPassword;
-	await fetch("/api/config", {
-		method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
-	}).then((r) => r.json());
-	$("saveStatus").textContent = `${t("saved")} ${new Date().toLocaleTimeString()}`;
+	if (data.adminPassword === "" || data.adminPassword === "•••") delete data.adminPassword;
+	if (!(await ensureAdmin())) return;
+	try {
+		await writeJSON("/api/config", data);
+		$("saveStatus").textContent = `${t("saved")} ${new Date().toLocaleTimeString()}`;
+	} catch (e) {
+		$("saveStatus").textContent = "Fehler: " + e.message;
+	}
 });
 
 document.getElementById("btnClearSn")?.addEventListener("click", async () => {
 	if (!confirm("Persistierte Seriennummer löschen?\n\nBeim nächsten erfolgreichen Modbus-Read wird eine neue gesetzt. HmIP-Geräte werden mit neuen IDs angemeldet — alte können in der HmIP-App als „nicht erreichbar\" auftauchen und müssen dort entfernt werden.")) return;
+	if (!(await ensureAdmin())) return;
 	const btn = document.getElementById("btnClearSn");
 	btn.disabled = true;
 	try {
-		const r = await fetch("/api/config/clear-sn", { method: "POST" }).then((x) => x.json());
+		const r = await writeJSON("/api/config/clear-sn", {});
 		document.getElementById("resetStatus").textContent = r.error
 			? "Fehler: " + r.error
 			: `Geräte-Identität geleert um ${new Date().toLocaleTimeString()}`;
@@ -676,15 +921,12 @@ document.getElementById("btnFullReset")?.addEventListener("click", async () => {
 		document.getElementById("resetStatus").textContent = "Reset abgebrochen.";
 		return;
 	}
+	if (!(await ensureAdmin())) return;
 	const btn = document.getElementById("btnFullReset");
 	btn.disabled = true;
 	document.getElementById("resetStatus").textContent = "Reset läuft, Plugin startet in 2 s neu …";
 	try {
-		await fetch("/api/config/reset", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ confirm: "RESET" }),
-		});
+		await writeJSON("/api/config/reset", { confirm: "RESET" });
 		// Plugin wird gleich beendet; Stream-Verbindung bricht ab.
 		setTimeout(() => location.reload(), 8000);
 	} catch (e) {
@@ -740,9 +982,10 @@ document.getElementById("btnProbeTcp")?.addEventListener("click", async () => {
 });
 
 document.getElementById("btnProbeSlave")?.addEventListener("click", async () => {
+	if (!(await ensureAdmin())) return;
 	$("probeOut").textContent = "Slave-IDs werden getestet (kann ~30 s dauern)…";
 	try {
-		const r = await fetch("/api/probe/slave", { method: "POST" }).then((x) => x.json());
+		const r = await writeJSON("/api/probe/slave", {});
 		const lines = r.tested.map((t) =>
 			t.ok ? `  ✓ Slave ${t.unitId}: antwortet (Sample ${t.sample})`
 			     : `  ✗ Slave ${t.unitId}: ${t.error}`
@@ -768,6 +1011,8 @@ function downloadText(name, content) {
 	a.download = name;
 	a.click();
 }
+// Deliberately shadows the deprecated global escape() with an HTML escaper.
+// eslint-disable-next-line no-redeclare
 function escape(s) {
 	return String(s).replace(/[&<>"']/g, (c) => ({
 		"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -775,10 +1020,31 @@ function escape(s) {
 }
 
 // ── Boot ──────────────────────────────────────────────────────
+document.body.classList.add("loading");
+$("adminToggle")?.addEventListener("click", async () => {
+	if (accessState.adminAuthenticated) {
+		try { await fetch("/api/admin/logout", { method: "POST", headers: authHeaders() }); } catch {}
+		setAdmin(false);
+	} else {
+		await ensureAdmin();
+	}
+});
 buildTabs();
 openStream();
+refreshAccess();
 fetch("/api/snapshot").then((r) => r.json()).then((d) => { state = d; render(); });
 fetch("/api/version").then((r) => r.json()).then((d) => {
 	const el = document.getElementById("footVersion");
 	if (el && d.version) el.textContent = `hmip-fusionsolar · lokal · v${d.version}`;
 }).catch(() => {});
+
+// Live "vor X s" ticker so the age keeps counting between snapshots.
+setInterval(() => {
+	const s = state.snapshot;
+	if (s && s.lastUpdate) $("lastUpdate").textContent = `· vor ${fmt.rel(s.lastUpdate)}`;
+}, 1000);
+
+// Refresh overview sparklines periodically while the tab is visible.
+setInterval(() => {
+	if (document.getElementById("tab-overview").classList.contains("active")) refreshSparklines();
+}, 30000);

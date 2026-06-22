@@ -225,6 +225,22 @@ class Sun2000Modbus {
 		});
 	}
 
+	// Read a set of named registers one request at a time, tolerating
+	// per-register failures (returns null for those). Used as a fallback when
+	// an atomic block read fails on a single unsupported register but the
+	// inverter is otherwise responsive.
+	async readEach(names) {
+		const out = {};
+		for (const name of names) {
+			try {
+				out[name] = await this.readRegister(name);
+			} catch {
+				out[name] = null;
+			}
+		}
+		return out;
+	}
+
 	// Block read: read a contiguous register range in a single Modbus call,
 	// then decode the named registers from the resulting word array.
 	// `start`+`count` defines the window, `names` lists registers within it.

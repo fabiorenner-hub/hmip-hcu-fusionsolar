@@ -39,6 +39,7 @@ const daily = []; // condensed tier (one per day)
 
 let bucket = null; // open hourly accumulator
 let dailyResetAt = startOfDay();
+let cachedSelfSufficiency = null; // recomputed once per snapshot, not per read
 
 const today = freshDay();
 
@@ -52,6 +53,13 @@ function freshDay() {
 		peakBatteryDischarge: 0,
 		minSoc: null,
 		maxSoc: null,
+		// Accurate daily energy (kWh) sourced from the inverter's own counters
+		// rather than integrated power. PV / battery have native daily
+		// registers; grid import/export are derived from the lifetime meter
+		// counters minus their value at the first sample of the day.
+		startImport: null,
+		startExport: null,
+		energyToday: { pv: null, battCharge: null, battDischarge: null, import: null, export: null },
 	};
 }
 
@@ -232,6 +240,28 @@ function pushSnapshot(snapshot) {
 		if (today.minSoc === null || v.batterySoc < today.minSoc) today.minSoc = v.batterySoc;
 		if (today.maxSoc === null || v.batterySoc > today.maxSoc) today.maxSoc = v.batterySoc;
 	}
+
+	updateDailyEnergy(v);
+	cachedSelfSufficiency = computeSelfSufficiency();
+}
+
+// Daily energy from the inverter's counters (more accurate than integrating
+// power). PV and battery expose native daily registers; grid import/export
+// are deltas of the lifetime meter counters since the first sample today.
+function updateDailyEnergy(v) {
+	const e = today.energyToday;
+	if (typeof v.dailyYield === "number") e.pv = v.dailyYield;
+	if (typeof v.batteryDayChargeCapacity === "number") e.battCharge = v.batteryDayChargeCapacity;
+	if (typeof v.batteryDayDischargeCapacity === "number") e.battDischarge = v.batteryDayDischargeCapacity;
+
+	if (typeof v.meterPositiveActiveEnergy === "number") {
+		if (today.startImport === null) today.startImport = v.meterPositiveActiveEnergy;
+		if (v.meterPositiveActiveEnergy >= today.startImport) e.import = round(v.meterPositiveActiveEnergy - today.startImport);
+	}
+	if (typeof v.meterReverseActiveEnergy === "number") {
+		if (today.startExport === null) today.startExport = v.meterReverseActiveEnergy;
+		if (v.meterReverseActiveEnergy >= today.startExport) e.export = round(v.meterReverseActiveEnergy - today.startExport);
+	}
 }
 
 function updatePeak(key, value) {
@@ -264,7 +294,13 @@ function stats() {
 }
 
 function selfSufficiency() {
-	// Σ(produced consumed locally) / Σ(consumed) over the raw buffer window.
+	return cachedSelfSufficiency;
+}
+
+// Σ(produced consumed locally) / Σ(consumed) over the raw buffer window.
+// Computed once per snapshot (in pushSnapshot) and cached — callers (every
+// /api/snapshot and every 2 s SSE broadcast) just read the cached value.
+function computeSelfSufficiency() {
 	let consumed = 0;
 	let importGrid = 0;
 	for (const s of samples) {
