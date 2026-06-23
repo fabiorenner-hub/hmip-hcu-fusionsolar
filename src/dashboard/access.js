@@ -158,6 +158,33 @@ function passwordMatches(input, expected) {
 	}
 }
 
+// ── Login rate limiting ────────────────────────────────────────────
+// Per-IP failed-attempt counter for /api/admin/login. Decisions are made
+// before evaluating the password so a blocked IP never reaches passwordMatches.
+const loginAttempts = new Map(); // ip -> { count, resetAt }
+
+function checkLoginAllowed(ip, { now = Date.now(), max = 5 } = {}) {
+	const e = loginAttempts.get(ip);
+	if (!e) return { allowed: true, retryAfterMs: 0 };
+	if (now >= e.resetAt) { loginAttempts.delete(ip); return { allowed: true, retryAfterMs: 0 }; }
+	if (e.count >= max) return { allowed: false, retryAfterMs: e.resetAt - now };
+	return { allowed: true, retryAfterMs: 0 };
+}
+
+function recordLoginFailure(ip, { now = Date.now(), windowMs = 15 * 60 * 1000 } = {}) {
+	let e = loginAttempts.get(ip);
+	if (!e || now >= e.resetAt) {
+		e = { count: 0, resetAt: now + windowMs };
+		loginAttempts.set(ip, e);
+	}
+	e.count += 1;
+	return e.count;
+}
+
+function resetLoginAttempts(ip) {
+	loginAttempts.delete(ip);
+}
+
 module.exports = {
 	classify,
 	clientIp,
@@ -166,5 +193,8 @@ module.exports = {
 	isAuthed,
 	revoke,
 	passwordMatches,
+	checkLoginAllowed,
+	recordLoginFailure,
+	resetLoginAttempts,
 	TOKEN_TTL_MS,
 };

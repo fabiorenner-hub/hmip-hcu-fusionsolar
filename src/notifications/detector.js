@@ -21,6 +21,7 @@ const CATEGORIES = {
 	"energy-milestone": { defaultEnabled: false, defaultMinSeverity: "info" },
 	"power-peak": { defaultEnabled: false, defaultMinSeverity: "info" },
 	"device-status": { defaultEnabled: true, defaultMinSeverity: "info" },
+	"inverter-alarm": { defaultEnabled: true, defaultMinSeverity: "warning" },
 };
 
 let seq = 0;
@@ -46,6 +47,7 @@ class EventDetector extends EventEmitter {
 			dailyYield: null,
 			deviceStatus: null,
 			peakFiredDay: null,
+			activeAlarmCodes: new Set(),
 		};
 	}
 
@@ -119,6 +121,18 @@ class EventDetector extends EventEmitter {
 			this._emit("device-status", "info", "Statuswechsel", `${this.prev.deviceStatus} → ${v.deviceStatusText}`, { status: v.deviceStatusText });
 		}
 		if (v.deviceStatusText) this.prev.deviceStatus = v.deviceStatusText;
+
+		// inverter alarms — edge-triggered, re-arm after a code clears
+		const alarms = Array.isArray(snapshot && snapshot.alarms) ? snapshot.alarms : [];
+		const curr = new Set();
+		for (const a of alarms) {
+			if (!a || !a.code) continue;
+			curr.add(a.code);
+			if (!this.prev.activeAlarmCodes.has(a.code)) {
+				this._emit("inverter-alarm", a.severity === "critical" ? "critical" : "warning", "Wechselrichter-Alarm", a.name || a.code, { code: a.code });
+			}
+		}
+		this.prev.activeAlarmCodes = curr;
 	}
 
 	onHcuState(connected) {

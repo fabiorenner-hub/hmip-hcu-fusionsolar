@@ -39,7 +39,7 @@ module.exports = [
 			// `escape` (HTML escaper), shadowing the legacy browser globals —
 			// drop those from the global set so no-redeclare stays meaningful.
 			globals: (() => {
-				const b = { ...globals.browser, TimeChart: "writable" };
+				const b = { ...globals.browser, TimeChart: "writable", module: "writable" };
 				delete b.history;
 				delete b.escape;
 				return b;

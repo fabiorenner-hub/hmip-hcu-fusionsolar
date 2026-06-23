@@ -66,6 +66,7 @@ const DEFAULTS = {
 			"energy-milestone": { enabled: false, minSeverity: "info" },
 			"power-peak": { enabled: false, minSeverity: "info" },
 			"device-status": { enabled: true, minSeverity: "info" },
+			"inverter-alarm": { enabled: true, minSeverity: "warning" },
 		},
 		thresholds: {
 			lowSocPct: 20, // 0..100
@@ -78,6 +79,10 @@ const DEFAULTS = {
 		rateLimit: { maxPerInterval: 10, intervalSec: 3600 },
 		telegram: { enabled: false, botToken: "", chatId: "" },
 	},
+	// ── Security (login rate limiting) ────────────────────────────
+	security: { loginRateLimit: { windowSec: 900, maxAttempts: 5 } },
+	// ── History persistence ───────────────────────────────────────
+	history: { persistIntervalSec: 300, rawWindowSec: 0 },
 };
 
 let current = { ...DEFAULTS };
@@ -228,8 +233,28 @@ function get() {
 	return current;
 }
 
+// Restore a full/partial configuration document (e.g. from a backup): validate,
+// deep-merge over DEFAULTS so absent keys fall back to defaults, then persist.
+// Throws on invalid input WITHOUT mutating the current config (Req 15.2/15.3).
+function restore(document) {
+	if (!document || typeof document !== "object" || Array.isArray(document)) {
+		throw new Error("Invalid configuration document");
+	}
+	const merged = deepMerge(DEFAULTS, document);
+	validateNotifications(merged.notifications); // throws → current unchanged
+	current = merged;
+	ensureDir();
+	try {
+		fs.writeFileSync(CONFIG_FILE, JSON.stringify(current, null, 2), "utf8");
+		log.info("Config restored from backup");
+	} catch (e) {
+		log.error("Failed to persist restored config:", e.message);
+	}
+	return current;
+}
+
 function isReady(c = current) {
 	return Boolean(c.inverterHost && c.inverterPort);
 }
 
-module.exports = { load, save, get, isReady, scheduleReset, clearPersistedSn, DEFAULTS, deepMerge, validateNotifications };
+module.exports = { load, save, get, isReady, scheduleReset, clearPersistedSn, DEFAULTS, deepMerge, validateNotifications, restore };

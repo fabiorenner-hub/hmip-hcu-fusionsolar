@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.6.0
+Persistent history, inverter alarms, and a round of polish.
+
+### Persistent history & export
+- **History survives restarts**: the hourly (≤96 h) and daily (≤30 d) tiers are
+  now persisted to `/data/history.json` and restored on startup, so the Verlauf
+  view is no longer empty after every container restart. Writes are **atomic**
+  (temp file + `fsync` + rename) so a crash never leaves a torn file, and every
+  write failure is logged but non-fatal.
+- **Export**: new **CSV** and **JSON** download buttons in the Verlauf tab
+  (`/api/history/export.csv|json`, LAN-gated, served as attachments). The CSV
+  has a fixed, stable column header.
+- Restore is resilient: a missing, corrupt, or unknown-version file simply
+  starts empty; out-of-window and malformed entries are pruned/skipped; restored
+  hourly buckets are de-duplicated so the current hour never doubles up.
+
+### Inverter alarms
+- Sun2000 alarm registers **32008/32009/32010** are now read and decoded into a
+  named, severity-classified alarm list (unknown bits degrade to a generic
+  `alarm-<addr>-bit<n>` identifier rather than being dropped).
+- New **`inverter-alarm`** notification category: edge-triggered (one message per
+  newly-active alarm, nothing while it stays active, re-armed after it clears),
+  with `critical`/`warning` severity mapping. Enabled by default.
+- Diagnose tab gains an **"Aktive Alarme"** card.
+
+### Polish
+- **Login rate limiting**: per-IP failed-login throttling on `/api/admin/login`
+  (default 5 attempts / 15 min) — a blocked IP gets `429` + `Retry-After` and the
+  password is never even evaluated. A successful login resets the counter.
+- **Config backup/restore**: admin+LAN endpoints to download the full config and
+  restore it from a file (validated, merged over defaults; invalid documents are
+  rejected with the running config left unchanged). The backup contains plaintext
+  secrets by design — keep it safe.
+- **Theme**: initial theme now honours the OS `prefers-color-scheme` when no
+  preference is stored.
+- **i18n**: the translation table is checked for bidirectional key parity; the
+  table now lives in its own `i18n.js` so it is unit-testable.
+- **PWA**: a static `manifest.webmanifest` makes the dashboard installable. No
+  service worker is registered, so the no-cache contract is preserved.
+
+### Tooling
+- Added 18 `fast-check` property tests (history round-trip/retention/bounds/
+  resilience/raw-window/no-duplicate/CSV header, alarm decode, alarm edge-trigger/
+  gate/severity, rate-limit threshold/per-IP, config restore round-trip/defaults/
+  invalid, i18n parity, initial theme) plus example tests for the store I/O.
+
 ## 0.5.0
 Configurable notifications: Telegram delivery + an in-dashboard Notification Center.
 

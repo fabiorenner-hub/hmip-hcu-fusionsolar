@@ -16,7 +16,7 @@
 const { EventEmitter } = require("events");
 const log = require("../logger");
 const { Sun2000Modbus } = require("./modbus");
-const { BATTERY_STATUS, DEVICE_STATUS, READ_BLOCKS } = require("./registers");
+const { BATTERY_STATUS, DEVICE_STATUS, READ_BLOCKS, decodeAlarms } = require("./registers");
 
 const MAX_BACKOFF_MS = 60_000;
 
@@ -32,6 +32,7 @@ class Poller extends EventEmitter {
 			lastError: null,
 			static: {},
 			values: {},
+			alarms: [],
 		};
 		this._currentInterval = null;
 		this._consecutiveFailures = 0;
@@ -66,7 +67,7 @@ class Poller extends EventEmitter {
 	async restart(newConfig) {
 		this.stop();
 		this.config = newConfig;
-		this.snapshot = { connected: false, lastUpdate: null, lastError: null, static: {}, values: {} };
+		this.snapshot = { connected: false, lastUpdate: null, lastError: null, static: {}, values: {}, alarms: [] };
 		this._currentInterval = null;
 		this._consecutiveFailures = 0;
 		await this.start();
@@ -168,6 +169,8 @@ class Poller extends EventEmitter {
 			let batteryOk = false;
 			if (cfg.hasMeter) meterOk = await readBlock(READ_BLOCKS.meter);
 			if (cfg.hasBattery) batteryOk = await readBlock(READ_BLOCKS.battery);
+			// Alarms: small dedicated block, best-effort (like meter/battery).
+			const alarmsOk = await readBlock(READ_BLOCKS.alarms);
 
 			// Block reads are atomic: one unsupported/de-energised register
 			// (typically the PV strings at dusk) fails the whole pvAndAc block.
@@ -194,6 +197,9 @@ class Poller extends EventEmitter {
 			}
 
 			this.snapshot.values = merged;
+			// Update active alarms only when the alarm block actually read, so a
+			// failed read doesn't flap the alarm list to empty.
+			if (alarmsOk) this.snapshot.alarms = decodeAlarms(merged);
 			this.snapshot.connected = true;
 			this.snapshot.lastUpdate = Date.now();
 			this.snapshot.lastError = null;

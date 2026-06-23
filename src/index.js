@@ -9,6 +9,7 @@
 const log = require("./logger");
 const config = require("./config");
 const history = require("./history");
+const historyStore = require("./history-store");
 const hcuLog = require("./hcuLog");
 const { HcuClient } = require("./hcu/client");
 const M = require("./hcu/messages");
@@ -40,6 +41,15 @@ if (!authToken) {
 }
 
 config.load();
+
+// Restore persisted history (non-fatal if missing/corrupt) and start the
+// periodic writer so the long-term tiers survive restarts.
+historyStore.loadInto(history);
+const _histCfg = () => config.get().history || {};
+const stopHistoryWriter = historyStore.startPeriodicWriter(history, {
+	intervalMs: (_histCfg().persistIntervalSec || 300) * 1000,
+	opts: { includeRawWindowMs: (_histCfg().rawWindowSec || 0) * 1000 },
+});
 
 const hcu = new HcuClient({
 	pluginId,
@@ -203,6 +213,15 @@ const dashboard = (() => {
 				}
 				return next;
 			},
+			restoreConfig: async (doc) => {
+				const next = config.restore(doc); // throws on invalid → 400 upstream
+				const softUpdated = poller.updateConfig(next);
+				if (!softUpdated) {
+					log.info("Modbus connection settings changed via config restore — restarting poller");
+					await poller.restart(next);
+				}
+				return next;
+			},
 			scheduleReset: config.scheduleReset,
 			clearPersistedSn: config.clearPersistedSn,
 			getHcuStatus: () => ({
@@ -250,12 +269,14 @@ const dashboard = (() => {
 
 process.on("SIGTERM", async () => {
 	log.info("SIGTERM received, shutting down");
+	try { historyStore.persist(history, { includeRawWindowMs: (_histCfg().rawWindowSec || 0) * 1000 }); stopHistoryWriter(); } catch (e) { log.error("History persist on exit failed:", e.message); }
 	poller.stop();
 	await dashboard.stop();
 	process.exit(0);
 });
 process.on("SIGINT", async () => {
 	log.info("SIGINT received, shutting down");
+	try { historyStore.persist(history, { includeRawWindowMs: (_histCfg().rawWindowSec || 0) * 1000 }); stopHistoryWriter(); } catch (e) { log.error("History persist on exit failed:", e.message); }
 	poller.stop();
 	await dashboard.stop();
 	process.exit(0);

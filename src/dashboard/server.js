@@ -15,7 +15,7 @@ try {
 	/* ignore */
 }
 
-function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStatus, getDevices, scheduleReset, clearPersistedSn, notifications }) {
+function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, restoreConfig, getHcuStatus, getDevices, scheduleReset, clearPersistedSn, notifications }) {
 	const app = express();
 	app.use(express.json({ limit: "256kb" }));
 
@@ -70,10 +70,22 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 
 	app.post("/api/admin/login", (req, res) => {
 		const cfg = getConfig();
+		const ip = req.access.ip;
+		const rl = (cfg.security && cfg.security.loginRateLimit) || {};
+		const max = rl.maxAttempts || 5;
+		const windowMs = (rl.windowSec || 900) * 1000;
+		// Rate-limit BEFORE evaluating the password (Req 13.6).
+		const gate = access.checkLoginAllowed(ip, { max });
+		if (!gate.allowed) {
+			res.set("Retry-After", String(Math.ceil(gate.retryAfterMs / 1000)));
+			return res.status(429).json({ error: "Zu viele Fehlversuche. Bitte später erneut versuchen." });
+		}
 		const pw = req.body?.password;
 		if (cfg.adminPassword && !access.passwordMatches(pw, cfg.adminPassword)) {
+			access.recordLoginFailure(ip, { windowMs });
 			return res.status(403).json({ error: "Falsches Passwort" });
 		}
+		access.resetLoginAttempts(ip);
 		const token = access.issueToken();
 		res.json({ token, ttlMs: access.TOKEN_TTL_MS, protected: !!cfg.adminPassword });
 	});
@@ -156,6 +168,19 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 	// (≤ 30 days). Cheap to serve — these are already aggregated.
 	app.get("/api/history/aggregate", (_req, res) => {
 		res.json({ ...history.aggregates(), tracked: history.TRACK });
+	});
+
+	// History export (LAN-gated, no admin). Downloadable attachments.
+	app.get("/api/history/export.json", (_req, res) => {
+		const day = new Date().toISOString().slice(0, 10);
+		res.set("Content-Disposition", `attachment; filename="history-${day}.json"`);
+		res.json({ version: history.HISTORY_STORE_VERSION, savedAt: Date.now(), ...history.aggregates() });
+	});
+	app.get("/api/history/export.csv", (_req, res) => {
+		const day = new Date().toISOString().slice(0, 10);
+		res.set("Content-Type", "text/csv; charset=utf-8");
+		res.set("Content-Disposition", `attachment; filename="history-${day}.csv"`);
+		res.send(history.historyToCsv(history.aggregates()));
 	});
 
 	// ── Register catalog & manipulation ────────────────────────────
@@ -320,6 +345,25 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 			broadcast("snapshot", buildPayload());
 		} catch (e) {
 			res.status(500).json({ error: e.message });
+		}
+	});
+
+	// ── Config backup / restore ────────────────────────────────────
+	// Backup returns the UNREDACTED config so a restore is fully functional —
+	// it therefore contains plaintext secrets. Admin + LAN gated; downloadable.
+	app.get("/api/config/backup", requireAdmin, (_req, res) => {
+		const day = new Date().toISOString().slice(0, 10);
+		res.set("Content-Disposition", `attachment; filename="hmip-config-${day}.json"`);
+		res.json(getConfig());
+	});
+
+	app.post("/api/config/restore", requireAdmin, async (req, res) => {
+		try {
+			const merged = await restoreConfig(req.body || {});
+			res.json(redactConfig(merged));
+			broadcast("snapshot", buildPayload());
+		} catch (e) {
+			res.status(400).json({ error: e.message });
 		}
 	});
 

@@ -4,64 +4,18 @@
 // No framework, no build step. Single-page with hash-routed tabs, SSE
 // stream for live updates, vanilla canvas charts.
 
-const I18N = {
-	de: {
-		"tab.overview": "Übersicht",
-		"tab.live": "Live",
-		"tab.trend": "Verlauf",
-		"tab.notifications": "Meldungen",
-		"tab.inverter": "Wechselrichter",
-		"tab.battery": "Speicher",
-		"tab.grid": "Netz",
-		"tab.control": "Steuerung",
-		"tab.registers": "Modbus",
-		"tab.hcu": "HCU",
-		"tab.config": "Konfig",
-		"tab.logs": "Logs",
-		"tab.diag": "Diagnose",
-		"overview.pv": "PV-Erzeugung",
-		"overview.ac": "Wechselrichter AC",
-		"overview.grid": "Netz",
-		"overview.battery": "Speicher",
-		"overview.house": "Hausverbrauch",
-		"overview.hcu": "HCU-Verbindung",
-		"overview.todayPeaks": "Tagesspitzen",
-		"connected": "verbunden",
-		"disconnected": "getrennt",
-		"saved": "Gespeichert um",
-	},
-	en: {
-		"tab.overview": "Overview",
-		"tab.live": "Live",
-		"tab.trend": "Trend",
-		"tab.notifications": "Notifications",
-		"tab.inverter": "Inverter",
-		"tab.battery": "Battery",
-		"tab.grid": "Grid",
-		"tab.control": "Control",
-		"tab.registers": "Modbus",
-		"tab.hcu": "HCU",
-		"tab.config": "Config",
-		"tab.logs": "Logs",
-		"tab.diag": "Diagnostics",
-		"overview.pv": "PV production",
-		"overview.ac": "Inverter AC",
-		"overview.grid": "Grid",
-		"overview.battery": "Battery",
-		"overview.house": "House load",
-		"overview.hcu": "HCU connection",
-		"overview.todayPeaks": "Today's peaks",
-		"connected": "connected",
-		"disconnected": "disconnected",
-		"saved": "Saved at",
-	},
-};
+// Translations + pure i18n/theme helpers live in i18n.js (loaded first) so they
+// can be unit-tested under node:test without executing DOM code.
+const I18N = (typeof window !== "undefined" && window.I18N) || { de: {}, en: {} };
 const TABS = [
 	"overview", "live", "trend", "notifications", "inverter", "battery", "grid",
 	"control", "registers", "hcu", "config", "logs", "diag",
 ];
 let lang = localStorage.getItem("lang") || "de";
-let theme = localStorage.getItem("theme") || "dark";
+const _storedTheme = localStorage.getItem("theme");
+let theme = _storedTheme === "light" || _storedTheme === "dark"
+	? _storedTheme
+	: (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
 document.documentElement.dataset.theme = theme;
 
 const $ = (id) => document.getElementById(id);
@@ -742,7 +696,7 @@ function renderBars(elId, rows, emptyMsg) {
 	`).join("");
 }
 
-// ── Notification Center ────────────────────────────────────────
+// ── Notification Center ─────────────────────────────────────────
 const SEV_ICON = { info: "ℹ️", warning: "⚠️", critical: "🚨" };
 const CAT_LABEL = {
 	connection: "Verbindung",
@@ -815,6 +769,52 @@ $("notifList")?.addEventListener("click", (e) => {
 	const id = e.target?.dataset?.id;
 	if (id) markNotifRead(id);
 });
+// ── History export + config backup/restore wiring ─────────────
+function saveBlob(name, blob) {
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = name;
+	a.click();
+	setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+$("trendExportCsv")?.addEventListener("click", () => { window.location.href = "/api/history/export.csv"; });
+$("trendExportJson")?.addEventListener("click", () => { window.location.href = "/api/history/export.json"; });
+
+$("btnCfgBackup")?.addEventListener("click", async () => {
+	if (!(await ensureAdmin())) return;
+	try {
+		const r = await fetch("/api/config/backup", { headers: authHeaders() });
+		if (!r.ok) { $("cfgBackupStatus").textContent = "Fehler: " + r.status; return; }
+		saveBlob("hmip-config.json", await r.blob());
+		$("cfgBackupStatus").textContent = "Backup heruntergeladen.";
+	} catch (e) {
+		$("cfgBackupStatus").textContent = "Fehler: " + e.message;
+	}
+});
+$("btnCfgRestore")?.addEventListener("click", () => $("cfgRestoreFile")?.click());
+$("cfgRestoreFile")?.addEventListener("change", async (e) => {
+	const file = e.target.files && e.target.files[0];
+	if (!file) return;
+	try {
+		const doc = JSON.parse(await file.text());
+		if (!confirm("Konfiguration aus Datei wiederherstellen? Aktuelle Einstellungen werden überschrieben.")) return;
+		if (!(await ensureAdmin())) return;
+		const r = await writeJSON("/api/config/restore", doc);
+		if (r && r.error) {
+			$("cfgBackupStatus").textContent = "Fehler: " + r.error;
+		} else {
+			$("cfgBackupStatus").textContent = "Wiederhergestellt.";
+			loadConfig();
+			refreshAccess();
+		}
+	} catch (err) {
+		$("cfgBackupStatus").textContent = "Fehler: " + err.message;
+	} finally {
+		e.target.value = "";
+	}
+});
+
 async function loadRegisters() {
 	registerMeta = await fetch("/api/registers").then((r) => r.json());
 	renderRegTable();
@@ -1126,6 +1126,11 @@ document.getElementById("btnFullReset")?.addEventListener("click", async () => {
 
 // ── Diagnostics ───────────────────────────────────────────────
 async function refreshDiag() {
+	// Active inverter alarms (from the live snapshot, no fetch needed).
+	const alarms = (state.snapshot && state.snapshot.alarms) || [];
+	$("diagAlarms").innerHTML = alarms.length
+		? alarms.map((a) => `<div class="check ${a.severity === "critical" ? "bad" : "ok"}"><span class="dot ${a.severity === "critical" ? "bad" : "warn"}"></span><strong>${escape(a.name || "")}</strong><span class="muted mono">${escape(a.code || "")}</span></div>`).join("")
+		: `<p class="muted">Keine aktiven Alarme.</p>`;
 	const r = await fetch("/api/diagnostics").then((x) => x.json());
 	$("diagChecks").innerHTML = r.checks.map((c) => `
 		<div class="check ${c.ok ? "ok" : "bad"}">

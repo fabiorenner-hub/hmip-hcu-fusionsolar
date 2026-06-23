@@ -104,6 +104,7 @@ test("category catalog contains all required categories with documented defaults
 		"energy-milestone": { defaultEnabled: false, defaultMinSeverity: "info" },
 		"power-peak": { defaultEnabled: false, defaultMinSeverity: "info" },
 		"device-status": { defaultEnabled: true, defaultMinSeverity: "info" },
+		"inverter-alarm": { defaultEnabled: true, defaultMinSeverity: "warning" },
 	};
 	assert.deepStrictEqual(CATEGORIES, expected);
 	// The persisted DEFAULTS mirror the catalog keys.

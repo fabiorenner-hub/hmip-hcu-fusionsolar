@@ -34,6 +34,11 @@ const REG = {
 	powerFactor:     { addr: 32084, length: 1, type: "i16", unit: "",      rw: "r", scale: 1000 },
 	efficiency:      { addr: 32086, length: 1, type: "u16", unit: "%",     rw: "r", scale: 100 },
 
+	// Alarm bitfields (Alarm 1/2/3). Decoded via ALARM_BITS / decodeAlarms.
+	alarm1: { addr: 32008, length: 1, type: "u16", unit: "", rw: "r" },
+	alarm2: { addr: 32009, length: 1, type: "u16", unit: "", rw: "r" },
+	alarm3: { addr: 32010, length: 1, type: "u16", unit: "", rw: "r" },
+
 	// PV strings (up to 4 inputs on common Sun2000 residential models)
 	pv1Voltage: { addr: 32016, length: 1, type: "i16", unit: "V", rw: "r", scale: 10 },
 	pv1Current: { addr: 32017, length: 1, type: "i16", unit: "A", rw: "r", scale: 100 },
@@ -253,6 +258,11 @@ const READ_BLOCKS = {
 		count: 2,                          // batteryRatedCapacity
 		names: ["batteryRatedCapacity"],
 	},
+	alarms: {
+		start: 32008,
+		count: 3,                          // 32008 alarm1 … 32010 alarm3
+		names: ["alarm1", "alarm2", "alarm3"],
+	},
 	meter: {
 		start: 37100,
 		count: 25,                         // 37100 meterStatus … 37121 reverseEnergy
@@ -268,3 +278,86 @@ const READ_BLOCKS = {
 };
 
 module.exports = { REG, decode, encode, BATTERY_STATUS, DEVICE_STATUS, READ_BLOCKS };
+
+// ── Inverter alarms ─────────────────────────────────────────────────────────
+// Sun2000 alarm bitfields. The catalog varies slightly by firmware, so unknown
+// bits degrade to a generic identifier rather than being dropped. severity
+// "critical" drives critical notifications; everything else is "warning".
+const ALARM_BITS = {
+	32008: {
+		0: { name: "High String Input Voltage", severity: "critical" },
+		1: { name: "DC Arc Fault", severity: "critical" },
+		2: { name: "String Reverse Connection", severity: "critical" },
+		3: { name: "String Current Backfeed", severity: "warning" },
+		4: { name: "Abnormal String Power", severity: "warning" },
+		5: { name: "AFCI Self-Check Failure", severity: "critical" },
+		6: { name: "Phase Wire Short-Circuited to PE", severity: "critical" },
+		7: { name: "Grid Loss", severity: "warning" },
+		8: { name: "Grid Undervoltage", severity: "warning" },
+		9: { name: "Grid Overvoltage", severity: "warning" },
+		10: { name: "Grid Voltage Imbalance", severity: "warning" },
+		11: { name: "Grid Overfrequency", severity: "warning" },
+		12: { name: "Grid Underfrequency", severity: "warning" },
+		13: { name: "Unstable Grid Frequency", severity: "warning" },
+		14: { name: "Output Overcurrent", severity: "critical" },
+		15: { name: "Output DC Component Overhigh", severity: "warning" },
+	},
+	32009: {
+		0: { name: "Abnormal Residual Current", severity: "critical" },
+		1: { name: "Abnormal Grounding", severity: "critical" },
+		2: { name: "Low Insulation Resistance", severity: "critical" },
+		3: { name: "Overtemperature", severity: "warning" },
+		4: { name: "Device Fault", severity: "critical" },
+		5: { name: "Upgrade Failed or Version Mismatch", severity: "warning" },
+		6: { name: "License Expired", severity: "warning" },
+		7: { name: "Faulty Monitoring Unit", severity: "warning" },
+		8: { name: "Faulty Power Collector", severity: "warning" },
+		9: { name: "Battery Abnormal", severity: "warning" },
+		10: { name: "Active Islanding", severity: "warning" },
+		11: { name: "Passive Islanding", severity: "warning" },
+		12: { name: "Transient AC Overvoltage", severity: "warning" },
+		13: { name: "Peripheral Port Short Circuit", severity: "warning" },
+		14: { name: "Churn Output Overload", severity: "warning" },
+		15: { name: "Abnormal PV Module Configuration", severity: "warning" },
+	},
+	32010: {
+		0: { name: "Optimizer Fault", severity: "warning" },
+		1: { name: "Built-in PID Operation Abnormal", severity: "warning" },
+		2: { name: "High Input String Voltage to Ground", severity: "critical" },
+		3: { name: "External Fan Abnormal", severity: "warning" },
+		4: { name: "Battery Reverse Connection", severity: "critical" },
+		5: { name: "On-grid/Off-grid Controller Abnormal", severity: "warning" },
+		6: { name: "PV String Loss", severity: "warning" },
+		7: { name: "Internal Fan Abnormal", severity: "warning" },
+		8: { name: "DC Protection Unit Abnormal", severity: "critical" },
+	},
+};
+
+// Pure decoder: raw u16 alarm words → list of active alarms, deterministic
+// order (register ascending, then bit ascending). null/0 words contribute none.
+function decodeAlarms(values) {
+	const v = values || {};
+	const regs = [
+		[32008, v.alarm1],
+		[32009, v.alarm2],
+		[32010, v.alarm3],
+	];
+	const out = [];
+	for (const [addr, raw] of regs) {
+		if (typeof raw !== "number" || Number.isNaN(raw)) continue;
+		const word = raw & 0xffff;
+		for (let bit = 0; bit < 16; bit += 1) {
+			if (!(word & (1 << bit))) continue;
+			const def = ALARM_BITS[addr] && ALARM_BITS[addr][bit];
+			out.push({
+				code: `${addr}:${bit}`,
+				name: def ? def.name : `alarm-${addr}-bit${bit}`,
+				severity: def ? def.severity : "warning",
+			});
+		}
+	}
+	return out;
+}
+
+module.exports.ALARM_BITS = ALARM_BITS;
+module.exports.decodeAlarms = decodeAlarms;
