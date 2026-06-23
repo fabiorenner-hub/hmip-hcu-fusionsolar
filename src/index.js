@@ -16,6 +16,7 @@ const cfgTpl = require("./hcu/configTemplate");
 const { Poller } = require("./sun2000/poller");
 const { buildDevices, handleControl } = require("./devices/mapper");
 const { buildServer } = require("./dashboard/server");
+const notifications = require("./notifications");
 
 const PLUGIN_FRIENDLY = {
 	en: "Sun2000 / FusionSolar",
@@ -49,6 +50,11 @@ const hcu = new HcuClient({
 
 const poller = new Poller(config.get());
 let lastDevices = [];
+
+// Notification subsystem: passive subscriptions to the poller/HCU; never
+// disturbs the existing snapshot/publishStatusEvents flow.
+notifications.init(config.get);
+notifications.attach({ poller, hcu });
 // Last STATUS_EVENT feature payload we sent per deviceId. Used to suppress
 // re-emitting an unchanged state every poll: the HCU/app keep the last value,
 // so re-asserting it is pure noise (and, for controllable devices like the
@@ -184,6 +190,11 @@ const dashboard = (() => {
 				for (const k of ["cloudPassword", "adminPassword"]) {
 					if (clean[k] === "•••") delete clean[k];
 				}
+				// Same for the nested Telegram bot token.
+				if (clean.notifications && clean.notifications.telegram && clean.notifications.telegram.botToken === "•••") {
+					clean.notifications = { ...clean.notifications, telegram: { ...clean.notifications.telegram } };
+					delete clean.notifications.telegram.botToken;
+				}
 				const next = config.save(clean);
 				const softUpdated = poller.updateConfig(next);
 				if (!softUpdated) {
@@ -201,6 +212,7 @@ const dashboard = (() => {
 				host: hcuHost,
 			}),
 			getDevices: () => lastDevices,
+			notifications,
 		});
 		server = app.listen(c.dashboardPort, "0.0.0.0", () => {
 			activePort = c.dashboardPort;

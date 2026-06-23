@@ -52,9 +52,78 @@ const DEFAULTS = {
 	// set, login requires it; when empty, admin mode is a soft accidental-
 	// write guard only (set a password for real protection).
 	adminPassword: "",
+	// ── Notifications ─────────────────────────────────────────────
+	// Configurable alerting (Telegram + dashboard Notification Center).
+	// Nested object; loaded with a deep-merge so absent keys fall back to
+	// the documented defaults below.
+	notifications: {
+		categories: {
+			connection: { enabled: true, minSeverity: "warning" },
+			"modbus-error": { enabled: true, minSeverity: "warning" },
+			hcu: { enabled: true, minSeverity: "warning" },
+			"battery-soc-low": { enabled: true, minSeverity: "warning" },
+			"battery-soc-full": { enabled: false, minSeverity: "info" },
+			"energy-milestone": { enabled: false, minSeverity: "info" },
+			"power-peak": { enabled: false, minSeverity: "info" },
+			"device-status": { enabled: true, minSeverity: "info" },
+		},
+		thresholds: {
+			lowSocPct: 20, // 0..100
+			fullSocPct: 98, // 0..100
+			milestoneKwh: 5, // kWh increment (> 0)
+			peakPowerW: 8000, // W (>= 0)
+		},
+		groupingWindowSec: 60, // grouping window (> 0)
+		quietHours: { enabled: false, start: "22:00", end: "07:00" },
+		rateLimit: { maxPerInterval: 10, intervalSec: 3600 },
+		telegram: { enabled: false, botToken: "", chatId: "" },
+	},
 };
 
 let current = { ...DEFAULTS };
+
+const SEVERITIES = ["info", "warning", "critical"];
+
+// Deep-merge of plain objects: override wins for non-objects; nested plain
+// objects are merged recursively so an absent nested key falls back to base.
+function deepMerge(base, override) {
+	if (!isPlainObject(base) || !isPlainObject(override)) {
+		return override === undefined ? base : override;
+	}
+	const out = { ...base };
+	for (const k of Object.keys(override)) {
+		out[k] = deepMerge(base[k], override[k]);
+	}
+	return out;
+}
+
+function isPlainObject(v) {
+	return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+// Validate the notifications config. Throws a descriptive Error on the first
+// out-of-range / malformed value, leaving the caller's stored config untouched.
+function validateNotifications(n) {
+	if (!isPlainObject(n)) throw new Error("notifications must be an object");
+	const t = n.thresholds || {};
+	const inRange = (v, lo, hi) => typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi;
+	if (!inRange(t.lowSocPct, 0, 100)) throw new Error("notifications.thresholds.lowSocPct must be 0..100");
+	if (!inRange(t.fullSocPct, 0, 100)) throw new Error("notifications.thresholds.fullSocPct must be 0..100");
+	if (!(typeof t.milestoneKwh === "number" && t.milestoneKwh > 0)) throw new Error("notifications.thresholds.milestoneKwh must be > 0");
+	if (!(typeof t.peakPowerW === "number" && t.peakPowerW >= 0)) throw new Error("notifications.thresholds.peakPowerW must be >= 0");
+	if (!(typeof n.groupingWindowSec === "number" && n.groupingWindowSec > 0)) throw new Error("notifications.groupingWindowSec must be > 0");
+	const rl = n.rateLimit || {};
+	if (!(Number.isInteger(rl.maxPerInterval) && rl.maxPerInterval >= 1)) throw new Error("notifications.rateLimit.maxPerInterval must be an integer >= 1");
+	if (!(typeof rl.intervalSec === "number" && rl.intervalSec > 0)) throw new Error("notifications.rateLimit.intervalSec must be > 0");
+	const q = n.quietHours || {};
+	const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
+	if (!hhmm.test(q.start || "")) throw new Error("notifications.quietHours.start must be HH:MM");
+	if (!hhmm.test(q.end || "")) throw new Error("notifications.quietHours.end must be HH:MM");
+	for (const [key, c] of Object.entries(n.categories || {})) {
+		if (!c || typeof c.enabled !== "boolean") throw new Error(`notifications.categories.${key}.enabled must be boolean`);
+		if (!SEVERITIES.includes(c.minSeverity)) throw new Error(`notifications.categories.${key}.minSeverity must be one of ${SEVERITIES.join("/")}`);
+	}
+}
 
 function ensureDir() {
 	try {
@@ -83,13 +152,26 @@ function load() {
 	try {
 		if (fs.existsSync(CONFIG_FILE)) {
 			const raw = fs.readFileSync(CONFIG_FILE, "utf8");
-			const parsed = JSON.parse(raw);
+			let parsed;
+			try {
+				parsed = JSON.parse(raw);
+			} catch (e) {
+				// Fail-fast: a corrupt persisted config must not be silently
+				// replaced with defaults — surface it so misconfiguration is
+				// visible (Requirement 9.3).
+				log.error(`Config file ${CONFIG_FILE} is corrupt and cannot be parsed: ${e.message}`);
+				throw new Error(`Corrupt config file ${CONFIG_FILE}: ${e.message}`);
+			}
 			current = { ...DEFAULTS, ...parsed };
+			// Deep-merge the nested notifications block so absent nested keys
+			// fall back to documented defaults.
+			current.notifications = deepMerge(DEFAULTS.notifications, parsed.notifications || {});
 			log.info("Loaded config from", CONFIG_FILE);
 		} else {
 			log.info("No config file yet, using defaults");
 		}
 	} catch (e) {
+		if (/Corrupt config file/.test(e.message)) throw e;
 		log.error("Failed to load config:", e.message);
 	}
 	return current;
@@ -125,7 +207,13 @@ function clearPersistedSn() {
 }
 
 function save(next) {
-	current = { ...current, ...next };
+	// Deep-merge the notifications subtree so partial updates keep existing
+	// nested values, then validate before persisting. Validation throws on
+	// invalid input, leaving the in-memory config unchanged (Requirement 2.7).
+	const merged = { ...current, ...next };
+	merged.notifications = deepMerge(current.notifications || DEFAULTS.notifications, (next && next.notifications) || {});
+	validateNotifications(merged.notifications);
+	current = merged;
 	ensureDir();
 	try {
 		fs.writeFileSync(CONFIG_FILE, JSON.stringify(current, null, 2), "utf8");
@@ -144,4 +232,4 @@ function isReady(c = current) {
 	return Boolean(c.inverterHost && c.inverterPort);
 }
 
-module.exports = { load, save, get, isReady, scheduleReset, clearPersistedSn, DEFAULTS };
+module.exports = { load, save, get, isReady, scheduleReset, clearPersistedSn, DEFAULTS, deepMerge, validateNotifications };

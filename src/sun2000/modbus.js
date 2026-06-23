@@ -296,7 +296,7 @@ class Sun2000Modbus {
 	}
 
 	getStatus() {
-		return { connected: this.connected, opts: this.opts, ...this.stats };
+		return { connected: this.connected, opts: this.opts, lockdownUntil: this._lockdownUntil, ...this.stats };
 	}
 
 	close() {

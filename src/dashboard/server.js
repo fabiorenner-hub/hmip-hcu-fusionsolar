@@ -15,7 +15,7 @@ try {
 	/* ignore */
 }
 
-function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStatus, getDevices, scheduleReset, clearPersistedSn }) {
+function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStatus, getDevices, scheduleReset, clearPersistedSn, notifications }) {
 	const app = express();
 	app.use(express.json({ limit: "256kb" }));
 
@@ -99,6 +99,7 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 			devices: getDevices(),
 			hcu: getHcuStatus(),
 			config: redactConfig(getConfig()),
+			unread: notifications ? notifications.unreadCount() : 0,
 			stats: {
 				...history.stats(),
 				selfSufficiency: history.selfSufficiency(),
@@ -322,6 +323,36 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 		}
 	});
 
+	// ── Notifications ──────────────────────────────────────────────
+	app.get("/api/notifications", (_req, res) => {
+		res.json({ groups: notifications ? notifications.listGrouped() : {}, unread: notifications ? notifications.unreadCount() : 0 });
+	});
+
+	app.get("/api/notifications/unread", (_req, res) => {
+		res.json({ unread: notifications ? notifications.unreadCount() : 0 });
+	});
+
+	app.post("/api/notifications/:id/read", requireAdmin, (req, res) => {
+		const newly = notifications ? notifications.markRead(req.params.id) : 0;
+		broadcast("snapshot", buildPayload());
+		res.json({ ok: true, newlyRead: newly, unread: notifications ? notifications.unreadCount() : 0 });
+	});
+
+	app.post("/api/notifications/read-all", requireAdmin, (_req, res) => {
+		const newly = notifications ? notifications.markAllRead() : 0;
+		broadcast("snapshot", buildPayload());
+		res.json({ ok: true, newlyRead: newly, unread: notifications ? notifications.unreadCount() : 0 });
+	});
+
+	app.post("/api/notifications/telegram/test", requireAdmin, async (_req, res) => {
+		try {
+			const outcome = notifications ? await notifications.sendTest() : { delivered: false, reason: "not-initialised" };
+			res.json(outcome);
+		} catch (e) {
+			res.status(500).json({ delivered: false, error: e.message });
+		}
+	});
+
 	// ── Logs & diagnostics ────────────────────────────────────────
 	app.get("/api/logs", (req, res) => {
 		const n = Math.min(2000, parseInt(req.query.n, 10) || 500);
@@ -443,11 +474,20 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, getHcuStat
 }
 
 function redactConfig(c) {
-	return {
+	const out = {
 		...c,
 		cloudPassword: c.cloudPassword ? "•••" : "",
 		adminPassword: c.adminPassword ? "•••" : "",
 	};
+	// Redact the Telegram bot token (nested) without mutating the original.
+	if (c.notifications) {
+		const tg = (c.notifications.telegram) || {};
+		out.notifications = {
+			...c.notifications,
+			telegram: { ...tg, botToken: tg.botToken ? "•••" : "" },
+		};
+	}
+	return out;
 }
 
-module.exports = { buildServer };
+module.exports = { buildServer, redactConfig };

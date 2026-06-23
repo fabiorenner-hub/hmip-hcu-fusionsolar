@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.5.0
+Configurable notifications: Telegram delivery + an in-dashboard Notification Center.
+
+### Notifications
+- **Configurable catalog**: each category can be enabled/disabled with a minimum
+  severity — connection/standby transitions, Modbus errors and reconnect lockdown,
+  HCU WebSocket connect/disconnect, battery SOC low/full, daily energy milestones,
+  power peaks, and device-status changes.
+- **Configurable thresholds**: low/full battery SOC, daily energy milestone
+  increment, power-peak level (validated on save).
+- **Grouping/batching**: related events within a configurable window are coalesced
+  into a single digest message instead of many; critical events flush immediately,
+  carrying along everything already collected.
+- **Quiet hours & rate limiting**: during quiet hours only critical digests are
+  delivered immediately, the rest are deferred and sent afterwards; once the rate
+  limit is hit, further digests are coalesced and delivered (never dropped).
+- **Telegram channel**: delivery via the Telegram Bot HTTP API using Node's built-in
+  `https` (no Python, no new runtime), with bounded exponential-backoff retry that
+  honours a 429 `retry_after`. A "Telegram testen" button verifies setup. The bot
+  token is redacted like `cloudPassword`/`adminPassword` and never written to logs.
+- **Notification Center**: a new "Meldungen" tab lists unread events grouped by
+  category with mark-as-read / mark-all-read (admin-gated), and an unread badge on
+  the tab that updates live via the existing SSE snapshot.
+
+### Architecture & tooling
+- New additive subsystem under `src/notifications/` (detector, grouping, dispatcher,
+  telegram, store, format, facade) wired via passive subscriptions to the poller and
+  HCU — existing flows are untouched.
+- New `/api/notifications*` endpoints behind the LAN gate + `requireAdmin`.
+- Config persists the full `notifications` block in `/data/config.json` with a
+  deep-merge so absent keys fall back to defaults; hot-reloaded without restart.
+- Added a `fast-check` property-test suite covering 20 correctness properties
+  (digest completeness, critical immediate-flush, unread-count invariant, store
+  bound, severity filtering, Telegram eligibility, quiet-hours routing, rate-limit
+  coalescing without loss, SOC/milestone edges, bounded retries, token-never-logged,
+  redaction and config round-trips).
+
 ## 0.4.1
 - **Admin login was unreachable**: when an admin password was set, there was
   no visible field to enter it — unlocking relied solely on the header lock,

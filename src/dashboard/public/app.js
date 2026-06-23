@@ -9,6 +9,7 @@ const I18N = {
 		"tab.overview": "Übersicht",
 		"tab.live": "Live",
 		"tab.trend": "Verlauf",
+		"tab.notifications": "Meldungen",
 		"tab.inverter": "Wechselrichter",
 		"tab.battery": "Speicher",
 		"tab.grid": "Netz",
@@ -33,6 +34,7 @@ const I18N = {
 		"tab.overview": "Overview",
 		"tab.live": "Live",
 		"tab.trend": "Trend",
+		"tab.notifications": "Notifications",
 		"tab.inverter": "Inverter",
 		"tab.battery": "Battery",
 		"tab.grid": "Grid",
@@ -55,7 +57,7 @@ const I18N = {
 	},
 };
 const TABS = [
-	"overview", "live", "trend", "inverter", "battery", "grid",
+	"overview", "live", "trend", "notifications", "inverter", "battery", "grid",
 	"control", "registers", "hcu", "config", "logs", "diag",
 ];
 let lang = localStorage.getItem("lang") || "de";
@@ -221,9 +223,10 @@ async function adminLogout() {
 // ── Layout ─────────────────────────────────────────────────────
 function buildTabs() {
 	const bar = $("tabBar");
-	bar.innerHTML = TABS.map(
-		(id) => `<button data-tab="${id}">${t("tab." + id)}</button>`
-	).join("");
+	bar.innerHTML = TABS.map((id) => {
+		const badge = id === "notifications" ? `<span class="tabBadge" id="notifBadge" hidden>0</span>` : "";
+		return `<button data-tab="${id}">${t("tab." + id)}${badge}</button>`;
+	}).join("");
 	bar.querySelectorAll("button").forEach((b) => {
 		b.addEventListener("click", () => activateTab(b.dataset.tab));
 	});
@@ -244,6 +247,7 @@ function activateTab(name) {
 	if (name === "config" && !$("configForm").children.length) loadConfig();
 	if (name === "live" || name === "battery" || name === "grid") refreshHistory();
 	if (name === "trend") refreshTrend();
+	if (name === "notifications") loadNotifications();
 	if (name === "overview") refreshSparklines();
 	if (name === "hcu") refreshHcuMessages();
 	if (name === "diag") refreshDiag();
@@ -300,6 +304,7 @@ function render() {
 	const v = s.values || {};
 	const stat = state.stats || {};
 	document.body.classList.remove("loading");
+	renderNotifBadge(state.unread || 0);
 
 	// Connection pill: green = reads OK, amber = link up but inverter asleep
 	// (standby/night), red = link down.
@@ -737,7 +742,79 @@ function renderBars(elId, rows, emptyMsg) {
 	`).join("");
 }
 
-// ── Registers tab ─────────────────────────────────────────────
+// ── Notification Center ────────────────────────────────────────
+const SEV_ICON = { info: "ℹ️", warning: "⚠️", critical: "🚨" };
+const CAT_LABEL = {
+	connection: "Verbindung",
+	"modbus-error": "Modbus-Fehler",
+	hcu: "HCU",
+	"battery-soc-low": "Batterie niedrig",
+	"battery-soc-full": "Batterie voll",
+	"energy-milestone": "Energie-Meilenstein",
+	"power-peak": "Leistungsspitze",
+	"device-status": "Gerätestatus",
+};
+
+function renderNotifBadge(count) {
+	const b = $("notifBadge");
+	if (!b) return;
+	b.textContent = count > 99 ? "99+" : String(count);
+	b.hidden = !count;
+}
+
+async function loadNotifications() {
+	let data;
+	try {
+		data = await fetch("/api/notifications").then((x) => x.json());
+	} catch (e) {
+		$("notifList").innerHTML = `<p class="muted">Fehler: ${escape(e.message)}</p>`;
+		return;
+	}
+	const groups = data.groups || {};
+	const keys = Object.keys(groups);
+	$("notifSummary").textContent = data.unread ? `${data.unread} ungelesen` : "Keine ungelesenen Meldungen";
+	if (!keys.length) {
+		$("notifList").innerHTML = `<p class="muted">Keine ungelesenen Meldungen.</p>`;
+		return;
+	}
+	$("notifList").innerHTML = keys.map((cat) => {
+		const items = groups[cat].map((e) => `
+			<div class="notif ${e.severity}">
+				<span class="notifIcon">${SEV_ICON[e.severity] || ""}</span>
+				<span class="notifTime mono">${new Date(e.t).toLocaleString("de-DE")}</span>
+				<span class="notifMsg"><strong>${escape(e.title || "")}</strong> ${escape(e.message || "")}</span>
+				<button class="ghost notifRead" data-id="${escape(e.id)}">gelesen</button>
+			</div>
+		`).join("");
+		return `<div class="card"><h3>${escape(CAT_LABEL[cat] || cat)} (${groups[cat].length})</h3>${items}</div>`;
+	}).join("");
+}
+
+async function markNotifRead(id) {
+	if (!(await ensureAdmin())) return;
+	try {
+		await writeJSON("/api/notifications/" + encodeURIComponent(id) + "/read", {});
+		loadNotifications();
+	} catch (e) {
+		alert("Fehler: " + e.message);
+	}
+}
+
+async function markAllNotifRead() {
+	if (!(await ensureAdmin())) return;
+	try {
+		await writeJSON("/api/notifications/read-all", {});
+		loadNotifications();
+	} catch (e) {
+		alert("Fehler: " + e.message);
+	}
+}
+
+$("notifMarkAll")?.addEventListener("click", markAllNotifRead);
+$("notifList")?.addEventListener("click", (e) => {
+	const id = e.target?.dataset?.id;
+	if (id) markNotifRead(id);
+});
 async function loadRegisters() {
 	registerMeta = await fetch("/api/registers").then((r) => r.json());
 	renderRegTable();
@@ -880,6 +957,31 @@ $("logClear").addEventListener("click", () => { logsRaw = []; renderLogs(); });
 setInterval(() => { if ($("logAuto").checked && document.getElementById("tab-logs").classList.contains("active")) refreshLogs(); }, 3000);
 
 // ── Config tab ────────────────────────────────────────────────
+// Nested-path helpers for dotted config field names (e.g. notifications.telegram.chatId)
+function getPath(obj, path) {
+	return path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+function setPath(obj, path, val) {
+	const keys = path.split(".");
+	let o = obj;
+	for (let i = 0; i < keys.length - 1; i += 1) {
+		if (!o[keys[i]] || typeof o[keys[i]] !== "object") o[keys[i]] = {};
+		o = o[keys[i]];
+	}
+	o[keys[keys.length - 1]] = val;
+}
+
+const NOTIF_CATS = [
+	["connection", "Verbindung"],
+	["modbus-error", "Modbus-Fehler"],
+	["hcu", "HCU"],
+	["battery-soc-low", "Batterie niedrig"],
+	["battery-soc-full", "Batterie voll"],
+	["energy-milestone", "Energie-Meilenstein"],
+	["power-peak", "Leistungsspitze"],
+	["device-status", "Gerätestatus"],
+];
+
 async function loadConfig() {
 	const cfg = await fetch("/api/config").then((r) => r.json());
 	const fields = [
@@ -899,31 +1001,71 @@ async function loadConfig() {
 		["adminPassword", "Admin-Passwort (Schreibzugriff)", "password", "leer = ungeschützt, nur LAN-Schutz aktiv"],
 		["lanOnly", "Nur aus lokalem Netz erreichbar", "checkbox"],
 		["allowedSubnets", "Erlaubte Subnetze (CIDR, kommagetrennt)", "text", "leer = alle privaten Netze; z. B. 192.168.10.0/24"],
+		// ── Benachrichtigungen ──
+		["notifications.telegram.enabled", "Telegram aktiv", "checkbox"],
+		["notifications.telegram.botToken", "Telegram Bot-Token", "password"],
+		["notifications.telegram.chatId", "Telegram Chat-ID", "text"],
+		["notifications.groupingWindowSec", "Gruppierungs-Fenster (s)", "number", "verwandte Ereignisse werden gebündelt"],
+		["notifications.quietHours.enabled", "Ruhezeiten aktiv", "checkbox"],
+		["notifications.quietHours.start", "Ruhezeit Start (HH:MM)", "text"],
+		["notifications.quietHours.end", "Ruhezeit Ende (HH:MM)", "text"],
+		["notifications.rateLimit.maxPerInterval", "Max. Nachrichten/Intervall", "number"],
+		["notifications.rateLimit.intervalSec", "Intervall (s)", "number"],
+		["notifications.thresholds.lowSocPct", "Akku niedrig (%)", "number"],
+		["notifications.thresholds.fullSocPct", "Akku voll (%)", "number"],
+		["notifications.thresholds.milestoneKwh", "Energie-Meilenstein (kWh)", "number"],
+		["notifications.thresholds.peakPowerW", "Leistungsspitze (W)", "number"],
 	];
+	for (const [key, label] of NOTIF_CATS) {
+		fields.push([`notifications.categories.${key}.enabled`, `Melden: ${label}`, "checkbox"]);
+		fields.push([`notifications.categories.${key}.minSeverity`, `${label} min. Stufe`, "select", null, ["info", "warning", "critical"]]);
+	}
 	const f = $("configForm");
 	f.innerHTML = "";
-	for (const [k, label, type, hint] of fields) {
+	for (const [k, label, type, hint, options] of fields) {
 		const wrapper = document.createElement("label");
 		wrapper.innerHTML = `<span>${label}</span>${hint ? `<span class="desc">${hint}</span>` : ""}`;
-		const input = document.createElement("input");
-		input.type = type;
+		const val = k.includes(".") ? getPath(cfg, k) : cfg[k];
+		let input;
+		if (type === "select") {
+			input = document.createElement("select");
+			for (const opt of options) {
+				const o = document.createElement("option");
+				o.value = opt;
+				o.textContent = opt;
+				if (opt === val) o.selected = true;
+				input.appendChild(o);
+			}
+		} else {
+			input = document.createElement("input");
+			input.type = type;
+			if (type === "checkbox") input.checked = !!val;
+			else input.value = val ?? "";
+		}
 		input.name = k;
-		if (type === "checkbox") input.checked = !!cfg[k];
-		else input.value = cfg[k] ?? "";
 		wrapper.appendChild(input);
 		f.appendChild(wrapper);
 	}
 }
 $("saveConfig").addEventListener("click", async () => {
 	const f = $("configForm");
-	const data = {};
-	[...f.querySelectorAll("input")].forEach((i) => {
-		if (i.type === "checkbox") data[i.name] = i.checked;
-		else if (i.type === "number") data[i.name] = i.value === "" ? null : Number(i.value);
-		else data[i.name] = i.value;
+	const raw = {};
+	[...f.querySelectorAll("input, select")].forEach((i) => {
+		if (i.type === "checkbox") raw[i.name] = i.checked;
+		else if (i.type === "number") raw[i.name] = i.value === "" ? null : Number(i.value);
+		else raw[i.name] = i.value;
 	});
-	if (data.cloudPassword === "" || data.cloudPassword === "•••") delete data.cloudPassword;
-	if (data.adminPassword === "" || data.adminPassword === "•••") delete data.adminPassword;
+	// Drop redaction placeholders so they never overwrite a stored secret.
+	if (raw.cloudPassword === "" || raw.cloudPassword === "•••") delete raw.cloudPassword;
+	if (raw.adminPassword === "" || raw.adminPassword === "•••") delete raw.adminPassword;
+	const tok = raw["notifications.telegram.botToken"];
+	if (tok === "" || tok === "•••") delete raw["notifications.telegram.botToken"];
+	// Expand dotted keys into nested objects for the API.
+	const data = {};
+	for (const [k, v] of Object.entries(raw)) {
+		if (k.includes(".")) setPath(data, k, v);
+		else data[k] = v;
+	}
 	if (!(await ensureAdmin())) return;
 	try {
 		await writeJSON("/api/config", data);
@@ -931,6 +1073,17 @@ $("saveConfig").addEventListener("click", async () => {
 		refreshAccess();
 	} catch (e) {
 		$("saveStatus").textContent = "Fehler: " + e.message;
+	}
+});
+
+$("btnTgTest")?.addEventListener("click", async () => {
+	if (!(await ensureAdmin())) return;
+	$("tgTestOut").textContent = "Sende…";
+	try {
+		const r = await writeJSON("/api/notifications/telegram/test", {});
+		$("tgTestOut").textContent = r.delivered ? "✓ gesendet" : "✗ " + (r.reason || r.error || "fehlgeschlagen");
+	} catch (e) {
+		$("tgTestOut").textContent = "Fehler: " + e.message;
 	}
 });
 

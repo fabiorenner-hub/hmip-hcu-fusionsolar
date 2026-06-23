@@ -156,6 +156,15 @@
 				</div>
 			</section>
 
+			<!-- ── Meldungen / Notification Center ──────────────────── -->
+			<section id="tab-notifications" class="tab">
+				<div class="row">
+					<button id="notifMarkAll" class="ghost">Alle als gelesen markieren</button>
+					<span id="notifSummary" class="muted"></span>
+				</div>
+				<div id="notifList"></div>
+			</section>
+
 			<!-- ── Wechselrichter ─────────────────────────────────── -->
 			<section id="tab-inverter" class="tab">
 				<div class="grid">
@@ -409,6 +418,15 @@
 				<div class="row">
 					<button id="saveConfig" type="button">Speichern</button>
 					<span id="saveStatus" class="muted"></span>
+				</div>
+
+				<div class="card">
+					<h3>Telegram-Test</h3>
+					<p class="muted">Bot-Token und Chat-ID oben setzen und speichern, dann die Zustellung testen.</p>
+					<div class="row">
+						<button id="btnTgTest" class="ghost">Telegram testen</button>
+						<span id="tgTestOut" class="muted"></span>
+					</div>
 				</div>
 
 				<div class="card">
