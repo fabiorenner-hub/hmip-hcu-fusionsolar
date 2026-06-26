@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.0
+Versionsanzeige im Header und automatische Update-Hinweise.
+
+- **Versions-Badge**: Neben „Sun2000 · HmIP" steht jetzt die installierte
+  Version. Ein Klick darauf öffnet die GitHub-Releases-Seite.
+- **Update-Erkennung**: Ein Hintergrund-Check (alle 6 h, Node-`https`, keine
+  neue Abhängigkeit) vergleicht die installierte Version mit dem neuesten
+  GitHub-Release. Netz-/Parse-Fehler sind nicht-fatal.
+- **Benachrichtigung mit Link**: Wird erstmals eine neuere Version erkannt,
+  erscheint eine einmalige Meldung (mit Release-Link) im Notification Center
+  und – sofern aktiviert – per Telegram. Neue, abschaltbare Kategorie
+  `plugin-update`.
+- **Menüpunkt „Update installieren"**: taucht bei verfügbarem Update als
+  hervorgehobener Link in der Tab-Leiste auf und führt direkt zum
+  GitHub-Release; das Badge hebt sich dann ebenfalls hervor.
+- `/api/version` liefert jetzt zusätzlich `latest`, `updateAvailable` und
+  `releaseUrl`. Fünf neue Tests (Semver-Vergleich + Checker-Verhalten).
+
 ## 0.6.0
 Persistent history, inverter alarms, and a round of polish.
 

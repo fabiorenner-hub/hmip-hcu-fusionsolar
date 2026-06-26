@@ -6,6 +6,7 @@ const log = require("../logger");
 const history = require("../history");
 const hcuLog = require("../hcuLog");
 const access = require("./access");
+const updateCheck = require("../update-check");
 const { REG } = require("../sun2000/registers");
 
 let PKG_VERSION = "0.0.0";
@@ -492,7 +493,14 @@ function buildServer({ getSnapshot, getModbus, getConfig, saveConfig, restoreCon
 	});
 
 	app.get("/api/version", (_req, res) => {
-		res.json({ version: PKG_VERSION });
+		const u = updateCheck.getStatus();
+		res.json({
+			version: PKG_VERSION,
+			latest: u.latest,
+			updateAvailable: !!u.updateAvailable,
+			releaseUrl: u.releaseUrl,
+			checkedAt: u.checkedAt,
+		});
 	});
 
 	app.get("/healthz", (_req, res) => {

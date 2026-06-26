@@ -67,6 +67,7 @@ const DEFAULTS = {
 			"power-peak": { enabled: false, minSeverity: "info" },
 			"device-status": { enabled: true, minSeverity: "info" },
 			"inverter-alarm": { enabled: true, minSeverity: "warning" },
+			"plugin-update": { enabled: true, minSeverity: "info" },
 		},
 		thresholds: {
 			lowSocPct: 20, // 0..100

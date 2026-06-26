@@ -22,8 +22,11 @@ let dispatcher = null;
 let telegram = null;
 let detector = null;
 let pumpTimer = null;
+let _getConfig = () => ({});
+let _injectedSeq = 0;
 
 function init(getConfig) {
+	_getConfig = getConfig;
 	store = createStore();
 	telegram = new TelegramChannel(getConfig);
 	dispatcher = new Dispatcher(getConfig, { telegram, log });
@@ -71,6 +74,23 @@ function attach({ poller, hcu }) {
 const api = {
 	init,
 	attach,
+	// Inject an event not derived from a poller/HCU snapshot (e.g. a plugin
+	// update became available). Routed through the same two paths as detector
+	// events: the Notification Center store and the delivery pipeline. Honors
+	// the category enable flag so users can silence it.
+	notify: (category, severity, title, message, data) => {
+		const cats = (_getConfig().notifications || {}).categories || {};
+		if (!(cats[category] && cats[category].enabled)) return null;
+		_injectedSeq = (_injectedSeq + 1) % 1e6;
+		const ev = { id: `evt_inj_${Date.now()}_${_injectedSeq}`, category, severity, title, message, data: data || null, t: Date.now(), read: false };
+		if (store) {
+			try { store.append(ev); } catch (e) { log.error("notif store error:", e.message); }
+		}
+		if (grouping) {
+			try { grouping.add(ev); } catch (e) { log.error("notif grouping error:", e.message); }
+		}
+		return ev;
+	},
 	listGrouped: () => (store ? store.listGrouped() : {}),
 	listUnread: () => (store ? store.listUnread() : []),
 	markRead: (id) => (store ? store.markRead(id) : 0),

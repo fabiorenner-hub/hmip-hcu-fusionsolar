@@ -18,6 +18,10 @@ const { Poller } = require("./sun2000/poller");
 const { buildDevices, handleControl } = require("./devices/mapper");
 const { buildServer } = require("./dashboard/server");
 const notifications = require("./notifications");
+const updateCheck = require("./update-check");
+
+let PKG_VERSION = "0.0.0";
+try { PKG_VERSION = require("../package.json").version || PKG_VERSION; } catch { /* ignore */ }
 
 const PLUGIN_FRIENDLY = {
 	en: "Sun2000 / FusionSolar",
@@ -65,6 +69,22 @@ let lastDevices = [];
 // disturbs the existing snapshot/publishStatusEvents flow.
 notifications.init(config.get);
 notifications.attach({ poller, hcu });
+
+// Periodically check GitHub for a newer release. When one appears, raise a
+// one-shot notification (with the release link) into the Notification Center
+// and Telegram. The dashboard reads the live status from /api/version.
+const stopUpdateCheck = updateCheck.start({
+	currentVersion: PKG_VERSION,
+	notify: (s) => {
+		notifications.notify(
+			"plugin-update",
+			"info",
+			"Update verfügbar",
+			`Version ${s.latest} ist verfügbar (installiert: ${PKG_VERSION}). ${s.releaseUrl}`,
+			{ latest: s.latest, current: PKG_VERSION, url: s.releaseUrl }
+		);
+	},
+});
 // Last STATUS_EVENT feature payload we sent per deviceId. Used to suppress
 // re-emitting an unchanged state every poll: the HCU/app keep the last value,
 // so re-asserting it is pure noise (and, for controllable devices like the
@@ -269,14 +289,14 @@ const dashboard = (() => {
 
 process.on("SIGTERM", async () => {
 	log.info("SIGTERM received, shutting down");
-	try { historyStore.persist(history, { includeRawWindowMs: (_histCfg().rawWindowSec || 0) * 1000 }); stopHistoryWriter(); } catch (e) { log.error("History persist on exit failed:", e.message); }
+	try { historyStore.persist(history, { includeRawWindowMs: (_histCfg().rawWindowSec || 0) * 1000 }); stopHistoryWriter(); stopUpdateCheck(); } catch (e) { log.error("History persist on exit failed:", e.message); }
 	poller.stop();
 	await dashboard.stop();
 	process.exit(0);
 });
 process.on("SIGINT", async () => {
 	log.info("SIGINT received, shutting down");
-	try { historyStore.persist(history, { includeRawWindowMs: (_histCfg().rawWindowSec || 0) * 1000 }); stopHistoryWriter(); } catch (e) { log.error("History persist on exit failed:", e.message); }
+	try { historyStore.persist(history, { includeRawWindowMs: (_histCfg().rawWindowSec || 0) * 1000 }); stopHistoryWriter(); stopUpdateCheck(); } catch (e) { log.error("History persist on exit failed:", e.message); }
 	poller.stop();
 	await dashboard.stop();
 	process.exit(0);

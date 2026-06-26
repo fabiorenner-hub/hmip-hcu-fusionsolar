@@ -21,6 +21,66 @@ document.documentElement.dataset.theme = theme;
 const $ = (id) => document.getElementById(id);
 const t = (key) => I18N[lang][key] || I18N.de[key] || key;
 
+// ── Version badge & update check ───────────────────────────────
+const GITHUB_RELEASES = "https://github.com/fabiorenner-hub/hmip-hcu-fusionsolar/releases";
+let updateInfo = { version: "", latest: null, updateAvailable: false, releaseUrl: GITHUB_RELEASES };
+
+function openReleases() {
+	window.open(updateInfo.releaseUrl || GITHUB_RELEASES, "_blank", "noopener");
+}
+
+function renderVersionBadge() {
+	const b = $("versionBadge");
+	if (!b) return;
+	if (!updateInfo.version) { b.hidden = true; return; }
+	b.hidden = false;
+	b.textContent = updateInfo.updateAvailable ? `v${updateInfo.version} ↑` : `v${updateInfo.version}`;
+	b.classList.toggle("update", updateInfo.updateAvailable);
+	b.title = updateInfo.updateAvailable
+		? `${t("update.available")}: v${updateInfo.latest} — ${t("update.install")}`
+		: t("update.current");
+}
+
+// The tab bar gets an extra "Update installieren" link only while an update is
+// available; it opens the GitHub release directly (not an in-app section).
+function renderUpdateMenu() {
+	const bar = $("tabBar");
+	if (!bar) return;
+	let item = $("tabUpdate");
+	if (updateInfo.updateAvailable) {
+		if (!item) {
+			item = document.createElement("a");
+			item.id = "tabUpdate";
+			item.className = "tabUpdate";
+			item.target = "_blank";
+			item.rel = "noopener";
+			bar.appendChild(item);
+		}
+		item.href = updateInfo.releaseUrl || GITHUB_RELEASES;
+		item.textContent = "⬇ " + t("update.install");
+	} else if (item) {
+		item.remove();
+	}
+}
+
+async function refreshVersion() {
+	try {
+		const d = await fetch("/api/version").then((r) => r.json());
+		updateInfo = {
+			version: d.version || "",
+			latest: d.latest || null,
+			updateAvailable: !!d.updateAvailable,
+			releaseUrl: d.releaseUrl || GITHUB_RELEASES,
+		};
+		const el = $("footVersion");
+		if (el && d.version) el.textContent = `hmip-fusionsolar · lokal · v${d.version}`;
+		renderVersionBadge();
+		renderUpdateMenu();
+	} catch {
+		/* version is non-critical */
+	}
+}
+
 const fmt = {
 	w: (v) => {
 		if (v == null) return "–";
@@ -184,6 +244,7 @@ function buildTabs() {
 	bar.querySelectorAll("button").forEach((b) => {
 		b.addEventListener("click", () => activateTab(b.dataset.tab));
 	});
+	renderUpdateMenu();
 	const initial = location.hash.replace("#", "") || "overview";
 	activateTab(TABS.includes(initial) ? initial : "overview");
 }
@@ -212,6 +273,7 @@ window.addEventListener("hashchange", () => {
 });
 
 // ── Theme & language ───────────────────────────────────────────
+$("versionBadge").addEventListener("click", openReleases);
 $("themeToggle").addEventListener("click", () => {
 	theme = theme === "dark" ? "light" : "dark";
 	document.documentElement.dataset.theme = theme;
@@ -707,6 +769,8 @@ const CAT_LABEL = {
 	"energy-milestone": "Energie-Meilenstein",
 	"power-peak": "Leistungsspitze",
 	"device-status": "Gerätestatus",
+	"inverter-alarm": "Wechselrichter-Alarm",
+	"plugin-update": "Update",
 };
 
 function renderNotifBadge(count) {
@@ -1234,10 +1298,10 @@ buildTabs();
 openStream();
 refreshAccess();
 fetch("/api/snapshot").then((r) => r.json()).then((d) => { state = d; render(); });
-fetch("/api/version").then((r) => r.json()).then((d) => {
-	const el = document.getElementById("footVersion");
-	if (el && d.version) el.textContent = `hmip-fusionsolar · lokal · v${d.version}`;
-}).catch(() => {});
+refreshVersion();
+// Re-check periodically so the badge/menu appear without a reload when the
+// backend detects a newer GitHub release while the page is open.
+setInterval(refreshVersion, 30 * 60 * 1000);
 
 // Live "vor X s" ticker so the age keeps counting between snapshots.
 setInterval(() => {

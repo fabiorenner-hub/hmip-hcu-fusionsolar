@@ -30,6 +30,9 @@
 			"connected": "verbunden",
 			"disconnected": "getrennt",
 			"saved": "Gespeichert um",
+			"update.install": "Update installieren",
+			"update.current": "Aktuelle Version",
+			"update.available": "Update verfügbar",
 		},
 		en: {
 			"tab.overview": "Overview",
@@ -55,6 +58,9 @@
 			"connected": "connected",
 			"disconnected": "disconnected",
 			"saved": "Saved at",
+			"update.install": "Install update",
+			"update.current": "Current version",
+			"update.available": "Update available",
 		},
 	};
 
